@@ -1,0 +1,27 @@
+# Vehicles names:
+vehicle.audi.a2
+vehicle.audi.tt
+vehicle.audi.etron
+vehicle.bmw.isetta
+vehicle.carlamotors.carlacola
+vehicle.citroen.c3
+vehicle.dodge_charger.police
+vehicle.harley-davidson.lowrider
+vehicle.mercedes-benz.coupe
+vehicle.bmw.grandtourer
+vehicle.toyota.prius
+vehicle.yamaha.yzf
+vehicle.nissan.patrol
+vehicle.bh.crossbike
+vehicle.ford.mustang
+vehicle.tesla.model3
+vehicle.diamondback.century
+vehicle.gazelle.omafiets
+vehicle.seat.leon
+vehicle.lincoln.mkz2017
+vehicle.kawasaki.ninja
+vehicle.volkswagen.t2
+vehicle.nissan.micra
+vehicle.chevrolet.impala
+vehicle.mini.cooperst
+vehicle.jeep.wrangler_rubicon
