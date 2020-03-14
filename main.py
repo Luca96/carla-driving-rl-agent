@@ -8,8 +8,9 @@ from tensorforce import Runner, Environment, Agent
 from tensorforce.agents import PPOAgent, A2CAgent
 
 from agents import AgentConfigs
-from agents.learn.environment import CarlaEnvironment, CarlaEnv
+from agents.learn import CarlaEnvironment, CarlaCompressImageEnv
 from agents.network import baseline, print_network
+from agents.specifications import Specifications as specs
 
 from worlds import World
 from worlds.controllers import KeyboardController
@@ -96,6 +97,7 @@ def tensorboard_summarizer(directory='data/summaries', frequency=100):
                 frequency=frequency)
 
 
+# TODO: remove
 def test_learning_env(timesteps: int, episodes: int, agent_type='a2c', vehicle='vehicle.tesla.model3', width=800, height=600):
     pygame.init()
     pygame.font.init()
@@ -208,59 +210,92 @@ def test_new_env(agent_builder, timesteps, episodes, vehicle='vehicle.tesla.mode
     pygame.font.init()
 
     try:
-        environment = CarlaEnv(client=get_client(),
-                               image_shape=(200, 150, 3),
-                               actor_filter=vehicle,
-                               max_fps=10,
-                               window_size=(800, 600))
+        environment = CarlaEnvironment(client=get_client(),
+                                       image_shape=(200, 150, 3),
+                                       actor_filter=vehicle,
+                                       max_fps=20,
+                                       window_size=(800, 600))
         print('== ENV ==')
 
         # controller = KeyboardController(environment.world)
 
-        agent = agent_builder(environment, timesteps, **kwargs)
+        agent = agent_builder(environment, max_episode_timesteps=timesteps, **kwargs)
         print('== AGENT ==')
 
         runner = Runner(agent, environment, max_episode_timesteps=timesteps, num_parallel=None)
-        runner.run(num_episodes=episodes)
+        runner.run(num_episodes=episodes, save_best_agent='weights/agents')
         runner.close()
 
     finally:
         pygame.quit()
 
 
-def gym_env_test(env='CartPole-v1'):
+def gym_env_test(env='CartPole-v1', episodes=30):
     # Create an OpenAI-Gym environment
     environment = Environment.create(environment='gym', level=env, visualize=True)
 
     # Create a PPO agent
-    agent = Agent.create(
-        agent='ppo', environment=environment,
-        # Automatically configured network
-        network='auto',
-        # Optimization
-        batch_size=10, update_frequency=2, learning_rate=1e-3, subsampling_fraction=0.2,
-        optimization_steps=5,
-        # Reward estimation
-        likelihood_ratio_clipping=0.2, discount=0.99, estimate_terminal=False,
-        # Critic
-        critic_network='auto',
-        critic_optimizer=dict(optimizer='adam', multi_step=10, learning_rate=1e-3),
-        # Preprocessing
-        preprocessing=None,
-        # Exploration
-        exploration=0.0, variable_noise=0.0,
-        # Regularization
-        l2_regularization=0.0, entropy_regularization=0.0,
-        # TensorFlow etc
-        name='agent', device=None, parallel_interactions=1, seed=None, execution=None, saver=None,
-        summarizer=None, recorder=None
-    )
+    # agent = Agent.create(
+    #     agent='ppo', environment=environment,
+    #     # Automatically configured network
+    #     network='auto',
+    #     # Optimization
+    #     batch_size=10, update_frequency=2, learning_rate=1e-3, subsampling_fraction=0.2,
+    #     optimization_steps=5,
+    #     # Reward estimation
+    #     likelihood_ratio_clipping=0.2, discount=0.99, estimate_terminal=False,
+    #     # Critic
+    #     critic_network='auto',
+    #     critic_optimizer=dict(optimizer='adam', multi_step=10, learning_rate=1e-3),
+    #     # Preprocessing
+    #     preprocessing=None,
+    #     # Exploration
+    #     exploration=0.0, variable_noise=0.0,
+    #     # Regularization
+    #     l2_regularization=0.0, entropy_regularization=0.0,
+    #     # TensorFlow etc
+    #     name='agent', device=None, parallel_interactions=1, seed=None, execution=None, saver=None,
+    #     summarizer=None, recorder=None
+    # )
+
+    network_spec = dict(type='auto', depth=2, final_depth=2, internal_rnn=5)
+
+    policy_spec = dict(type='parametrized_distributions',
+                       # distributions=dict(type='categorical'),
+                       # distributions=dict(type='gaussian'),
+                       # temperature=0.1,
+                       network=network_spec)
+
+    # optimizer_spec = dict(type='optimizing_step', optimizer=dict(type='natural_gradient', learning_rate=2e-2))
+    # optimizer_spec = dict(type='natural_gradient', learning_rate=3e-3)
+
+    # objective_spec = dict(type='det_policy_gradient')
+    objective_spec = dict(type='policy_gradient', clipping_value=0.2)
+    # objective_spec = dict(type='plus',
+    #                       objective1=dict(type='policy_gradient', clipping_value=0.2),
+    #                       objective2=dict(type='value', value='action', huber_loss=0.5))
+
+    update_spec = dict(unit='timesteps', batch_size=2)
+
+    # reward_spec = dict(horizon=20, discount=0.99, estimate_actions=True, estimate_advantage=True)
+    reward_spec = dict(horizon=20, discount=0.99)
+    # reward_spec = dict(horizon=10, discount=0.99)
+
+    agent = Agent.create(agent='tensorforce',
+                         environment=environment,
+                         policy=policy_spec,
+                         objective=objective_spec,
+                         optimizer='adadelta',
+                         update=update_spec,
+                         reward_estimation=reward_spec,
+                         exploration=0.0,
+                         entropy_regularization=0.1)
 
     # Initialize the runner
     runner = Runner(agent=agent, environment=environment)
 
     # Start the runner
-    runner.run(num_episodes=30)
+    runner.run(num_episodes=episodes)
     runner.close()
 
 
@@ -287,12 +322,96 @@ if __name__ == '__main__':
 
     # print_network(baseline)
 
-    AGENT_CONF = dict(batch_size=1, horizon=0)
+    # TF_ARGS = dict(batch_size=1, horizon=0)
+    PPO_CONF = dict(batch_size=1, optimization_steps=1, discount=0.99,
+                    network=dict(type='auto', size=64, depth=3, final_size=256, final_depth=1, internal_rnn=False),
+                    critic_network='auto', critic_optimizer=dict(optimizer='adam', multi_step=1, learning_rate=1e-3),
+                    # preprocessing=dict(image=dict(type='image', grayscale=True),
+                    #                    reward=dict(type='deltafier')),
+
+                    preprocessing=dict(state=[dict(type='image', grayscale=True)],
+                                       reward=dict(type='deltafier')),
+                    )
 
     # test_learning_env(agent_type='ppo', timesteps=120, episodes=10)
-    test_new_env(AgentConfigs.tensorforce, timesteps=120, episodes=10, **AGENT_CONF)
+    # test_new_env(AgentConfigs.tensorforce, timesteps=120, episodes=10, **TF_ARGS)
+    # test_new_env(AgentConfigs.ppo, timesteps=100, episodes=10, **PPO_CONF)
     # game_loop()
-    # gym_env_test(env='LunarLander-v2')
+    # gym_env_test(env='LunarLander-v2', episodes=100)
+    # gym_env_test(env='CarRacing-v0', episodes=100)
+
+    # test_new_env(AgentConfigs.tensorforce2,
+    #              timesteps=256,
+    #              episodes=10,
+    #              policy=specs.policy(distributions='gaussian',
+    #                                  # network=specs.auto_network(final_depth=2, final_size=256, internal_rnn=False),
+    #                                  network=specs.complex_network(networks=[
+    #                                      specs.conv_network(inputs='image', layers=5, dilation=2, dropout=0.2,
+    #                                                         output='image_out'),
+    #                                      specs.dense_network(inputs='vehicle_features', layers=2, units=32, dropout=0.2,
+    #                                                          output='vehicle_out'),
+    #                                      specs.dense_network(inputs='road_features', layers=2, units=24, dropout=0.2,
+    #                                                          output='road_out'),
+    #                                      specs.dense_network(inputs='previous_actions', layers=1, units=16, dropout=0.2,
+    #                                                          output='actions_out')],
+    #                                      layers=2,
+    #                                      units=200),
+    #                                  temperature=0.1),
+    #              optimizer=specs.opt.subsampling_step(optimizer=specs.opt.multi_step(optimizer='adam', num_steps=2),
+    #                                                   fraction=0.2),
+    #              objective=specs.obj.policy_gradient(clipping_value=0.2),
+    #              update=specs.update(unit='timesteps', batch_size=32),
+    #              reward_estimation=specs.reward_estimation(horizon=30, discount=0.99, estimate_horizon='late',
+    #                                                        estimate_actions=False, estimate_advantage=False),
+    #              exploration=0.1,  # exp_decay(steps=50, rate=0.5),
+    #              entropy_regularization=0.05)
+
+    network = specs.complex_network(networks=[
+                                         specs.conv_network(inputs='image', layers=5, stride=2, pool=None, dropout=0.2,
+                                                            output='image_out'),
+                                         specs.dense_network(inputs='vehicle_features', layers=2, units=32, dropout=0.2,
+                                                             output='vehicle_out'),
+                                         specs.dense_network(inputs='road_features', layers=2, units=24, dropout=0.2,
+                                                             output='road_out'),
+                                         specs.dense_network(inputs='previous_actions', layers=1, units=16, dropout=0.2,
+                                                             output='actions_out')],
+                                    layers=2,
+                                    units=200)
+
+    num_episodes = 10
+    num_timesteps = 256 * 2
+    frequency = 64
+    batch_size = num_timesteps
+
+    test_new_env(AgentConfigs.tensorforce2,
+                 timesteps=num_timesteps,
+                 episodes=num_episodes,
+
+                 policy=specs.policy(distributions='gaussian',
+                                     network=network,
+                                     temperature=0.99),
+
+                 optimizer=specs.opt.subsampling_step(optimizer=dict(type='adam', learning_rate=3e-4),
+                                                      fraction=0.25),
+
+                 objective=specs.obj.policy_gradient(clipping_value=0.2),
+
+                 update=specs.update(unit='timesteps', batch_size=batch_size, frequency=frequency),
+
+                 # Baseline (critic)
+                 # baseline_policy=specs.policy(distributions='gaussian', network=network),
+                 # baseline_optimizer=dict(type='adam', learning_rate=0.001),
+                 # baseline_objective=specs.obj.value(value='action', huber_loss=0.0),
+                 #
+                 reward_estimation=dict(horizon=200,
+                                        discount=0.997,  # 0.997^200 ~ 0.5
+                                        # estimate_horizon='early',
+                                        # estimate_actions=True,
+                                        estimate_advantage=True
+                                        ),
+
+                 exploration=0.1 * 0,  # exp_decay(steps=50, rate=0.5),
+                 entropy_regularization=0.05)
 
     # ---------------------------------------------------------------------------------------------
 

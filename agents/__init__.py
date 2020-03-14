@@ -38,5 +38,11 @@ class AgentConfigs(object):
                             **kwargs)
 
     @staticmethod
+    def tensorforce2(env, **kwargs):
+        return Agent.create(agent='tensorforce',
+                            environment=env,
+                            **kwargs)
+
+    @staticmethod
     def load(config_name, **kwargs):
         pass

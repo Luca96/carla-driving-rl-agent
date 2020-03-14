@@ -70,6 +70,7 @@ class CollisionSensor(Sensor):
 
         actor_type = utils.get_actor_display_name(event.other_actor)
         self.hud.notification('Collision with %r' % actor_type)
+        print('Collision with %r' % actor_type)
 
         impulse = event.normal_impulse
         intensity = utils.vector_norm(impulse)

@@ -103,4 +103,10 @@ WAYPOINT_DICT = dict(lane_change={carla.LaneChange.NONE: 0,
                                         carla.LaneMarkingType.Solid: 7,
                                         carla.LaneMarkingType.SolidBroken: 8,
                                         carla.LaneMarkingType.SolidSolid: 9,
-                                        carla.LaneMarkingType.Other: 10})
+                                        carla.LaneMarkingType.Other: 10},
+                     traffic_light={carla.TrafficLightState.Green: 0,
+                                    carla.TrafficLightState.Red: 1,
+                                    carla.TrafficLightState.Yellow: 2,
+                                    carla.TrafficLightState.Off: 3,
+                                    carla.TrafficLightState.Unknown: 4}
+                     )

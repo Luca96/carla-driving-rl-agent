@@ -65,7 +65,7 @@ class World(object):
         self.recording_enabled = False
         self.recording_start = 0
 
-    def reward(self, a=-1, b=-1000, c=1, d=-0.8):
+    def reward2(self, a=-1, b=-1000, c=1, d=-0.8):
         """Returns a scalar reward."""
         # TODO: include the distance from vehicle to closest (or next) route waypoint.
         # TODO: include a penalty for law compliance: exceeding the speed limit, red traffic light...
@@ -86,6 +86,28 @@ class World(object):
         destination = d * self.distance_to_destination()
 
         return spent_time + collision_penalty + c * efficiency + destination
+
+    def reward(self, a=-1, b=-1000, c=1, d=-0.8):
+        """Returns a scalar reward."""
+        # TODO: include the distance from vehicle to closest (or next) route waypoint.
+        # TODO: include a penalty for law compliance: exceeding the speed limit, red traffic light...
+
+        # Time term: go to destination as fast as possible
+        spent_time = a * self.elapsed_time
+
+        # Collision term: do as few collision as possible
+        collision_penalty = b * self.num_collisions
+
+        # Efficiency term: 'positive' if travelled_distance < route_size, 'negative' otherwise
+        if self.travelled_distance <= self.route.size:
+            efficiency = self.travelled_distance
+        else:
+            efficiency = self.route.size - self.travelled_distance
+
+        # Signal direction (i.e. next waypoint)
+        direction = d * self.route.closest_path.distance
+
+        return spent_time + collision_penalty + c * efficiency + direction
 
     def start(self):
         print('> worlds.start')
@@ -183,19 +205,46 @@ class World(object):
         t = self.player.get_transform()
         v = self.player.get_velocity()
 
+        gyroscope = self.imu_sensor.gyroscope
+        accelerometer = self.imu_sensor.accelerometer
+
         return [min(3.6 * utils.vector_norm(v), 150.0),
+                # Accelerometer:
+                accelerometer[0],
+                accelerometer[1],
+                accelerometer[2],
+                # Gyroscope:
+                gyroscope[0],
+                gyroscope[1],
+                gyroscope[2],
+                # Location  # TODO: change with 'gnss' measurement??
                 t.location.x,
                 t.location.y,
+                # Destination:
                 self.target_position.location.x,
                 self.target_position.location.y,
+                # TODO: add 'light_state' -> release 0.9.8
+                # Compass:
                 math.radians(self.imu_sensor.compass)]
 
     def get_road_features(self):
         waypoint = self.map.get_waypoint(self.player.get_location())
 
+        # TODO: move the above 3 features to vehicle-features?
+        speed_limit = self.player.get_speed_limit()
+        traffic_light_state = self.player.get_traffic_light_state()
+        is_at_traffic_light = self.player.is_at_traffic_light()
+
+        print(f'speed-limit: {speed_limit}, traffic-light ({is_at_traffic_light}, {traffic_light_state})')
+
         return [waypoint.is_intersection,
                 waypoint.is_junction,
                 waypoint.lane_width,
+                speed_limit,
+                # Traffic light:
+                is_at_traffic_light,
+                WAYPOINT_DICT['traffic_light'][traffic_light_state],
+                # Lane:
                 WAYPOINT_DICT['lane_type'][waypoint.lane_type],
                 WAYPOINT_DICT['lane_change'][waypoint.lane_change],
                 WAYPOINT_DICT['lane_marking_type'][waypoint.left_lane_marking.type],
@@ -211,6 +260,7 @@ class World(object):
 
     def on_collision(self, event):
         """Just increase the number of collisions. The next 'tick' will erase this number."""
+        print('on_collision')
         actor = event.other_actor
         # TODO: discover the other_actor's type, if is human terminate the episode, if is a vehicle add a bigger penalty
         self.num_collisions += 1
@@ -223,7 +273,6 @@ class World(object):
         self.route.update_closest_waypoint(location=self.player.get_location())
 
         reward = self.reward()
-
         self.hud.tick(self, clock)
 
         if debug:
