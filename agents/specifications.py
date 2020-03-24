@@ -85,33 +85,9 @@ class Optimizers:
                     fraction=fraction)
 
 
-class Specifications:
-    """Explicits TensorForce's specifications as dicts"""
-    objectives = Objectives
-    optimizers = Optimizers
-
-    # Short names:
-    obj = objectives
-    opt = optimizers
-
+class Networks:
     @staticmethod
-    def update(unit: str, batch_size: int, frequency=None, start: int = None):
-        return dict(unit=unit,
-                    batch_size=batch_size,
-                    frequency=frequency if frequency else batch_size,
-                    start=start if start else batch_size)
-
-    @staticmethod
-    def reward_estimation(horizon: int, discount=1.0, estimate_horizon=False, estimate_actions=False,
-                          estimate_advantage=False):
-        return dict(horizon=horizon,
-                    discount=discount,
-                    estimate_horizon=estimate_horizon,
-                    estimate_actions=estimate_actions,
-                    estimate_advantage=estimate_advantage)
-
-    @staticmethod
-    def auto_network(size=64, depth=2, final_size=None, final_depth=1, internal_rnn=False):
+    def auto(size=64, depth=2, final_size=None, final_depth=1, internal_rnn=False):
         return dict(type='auto',
                     size=size,
                     depth=depth,
@@ -120,8 +96,8 @@ class Specifications:
                     internal_rnn=internal_rnn)
 
     @staticmethod
-    def conv_network(inputs: [str] = None, output: str = None, initial_filters=32, kernel=(3, 3), pool='max',
-                     activation='relu', stride=1, dilation=1, dropout=0.0, layers=2, normalization='instance'):
+    def convolutional(inputs: [str] = None, output: str = None, initial_filters=32, kernel=(3, 3), pool='max',
+                      activation='relu', stride=1, dilation=1, dropout=0.0, layers=2, normalization='instance'):
         network = []
 
         if inputs is not None:
@@ -129,6 +105,9 @@ class Specifications:
                 network.append(dict(type='retrieve', tensors=inputs))
             elif isinstance(inputs, str):
                 network.append(dict(type='retrieve', tensors=[inputs]))
+
+        # network.append(dict(type='image', height=60, width=60, grayscale=True))
+        # network.append(dict(type='image', grayscale=True))
 
         for i in range(1, layers + 1):
             filters = initial_filters * i
@@ -158,8 +137,8 @@ class Specifications:
         return network
 
     @staticmethod
-    def dense_network(inputs: [str] = None, output: str = None, units=64, layers=2, activation='relu', dropout=0.0,
-                      normalization='instance'):
+    def dense(inputs: [str] = None, output: str = None, units=64, layers=2, activation='relu', dropout=0.0,
+              normalization='instance'):
         network = []
 
         if inputs is not None:
@@ -182,31 +161,7 @@ class Specifications:
         return network
 
     @staticmethod
-    def complex_network_old(networks: [[dict]], layers=2, units=64, activation='relu', dropout=0.0, aggregation='concat'):
-        network = []
-        tensors = []
-
-        for net in networks:
-            # copy layers
-            network.extend(net)
-
-            # get registered layers
-            # layer = net[-1]
-            layer = net[1]
-            assert layer['type'] == 'register'
-
-            tensors.append(layer['tensor'])
-
-        # aggregate them
-        network.append(dict(type='retrieve', tensors=tensors, aggregation=aggregation))
-
-        for i in range(layers):
-            network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
-
-        return network
-
-    @staticmethod
-    def complex_network(networks: [[dict]], layers=2, units=64, activation='relu', dropout=0.0, aggregation='concat'):
+    def complex(networks: [[dict]], layers=2, units=64, activation='relu', dropout=0.0, aggregation='concat'):
         network = networks
         outputs = []
 
@@ -225,12 +180,69 @@ class Specifications:
 
         return network
 
+
+class Agents:
+    pass
+
+
+class Specifications:
+    """Explicits TensorForce's specifications as dicts"""
+    objectives = Objectives
+    optimizers = Optimizers
+    networks = Networks
+    agents = Agents
+
+    # Short names:
+    obj = objectives
+    opt = optimizers
+    net = networks
+
     @staticmethod
-    def policy(network: dict, distributions: str, temperature=0.0):
+    def update(unit: str, batch_size: int, frequency=None, start: int = None):
+        return dict(unit=unit,
+                    batch_size=batch_size,
+                    frequency=frequency if frequency else batch_size,
+                    start=start if start else batch_size)
+
+    @staticmethod
+    def reward_estimation(horizon: int, discount=1.0, estimate_horizon=False, estimate_actions=False,
+                          estimate_advantage=False):
+        return dict(horizon=horizon,
+                    discount=discount,
+                    estimate_horizon=estimate_horizon,
+                    estimate_actions=estimate_actions,
+                    estimate_advantage=estimate_advantage)
+
+    @staticmethod
+    def policy(network: dict, distributions: str = None, temperature=0.0):
         return dict(type='parametrized_distributions',
-                    distributions=dict(type=distributions),
+                    distributions=dict(type=distributions) if isinstance(distributions, str) else None,
                     network=network,
                     temperature=temperature)
+
+    @staticmethod
+    def agent_network():
+        return Networks.complex(networks=[
+            Networks.convolutional(inputs='image', layers=5, stride=2, pool=None, dropout=0.2,
+                                   output='image_out'),
+            Networks.dense(inputs='vehicle_features', layers=2, units=32, dropout=0.2,
+                           output='vehicle_out'),
+            Networks.dense(inputs='road_features', layers=2, units=24, dropout=0.2,
+                           output='road_out'),
+            Networks.dense(inputs='previous_actions', layers=1, units=16, dropout=0.2,
+                           output='actions_out')],
+            layers=2,
+            units=200)
+
+    @staticmethod
+    def agent_light_network():
+        return Networks.complex(networks=[
+            Networks.convolutional(inputs='image', layers=1, initial_filters=32, stride=32, pool='max', output='image_out'),
+            Networks.dense(inputs='vehicle_features', layers=1, units=1, output='vehicle_out'),
+            Networks.dense(inputs='road_features', layers=1, units=1, output='road_out'),
+            Networks.dense(inputs='previous_actions', layers=1, units=1, output='actions_out')],
+            layers=1,
+            units=1)
 
     @staticmethod
     def saver():

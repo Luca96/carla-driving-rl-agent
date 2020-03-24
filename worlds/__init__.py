@@ -2,12 +2,14 @@ import sys
 import math
 import random
 import carla
+import pygame
 
 import worlds.debug
 import worlds.utils as utils
 
 from worlds.utils import WAYPOINT_DICT
-from worlds.navigation import Route, RoutePlanner
+from worlds.navigation import RoutePlanner
+from worlds.navigation.route import Route
 from worlds.managers import CameraManager
 from worlds.sensors import CollisionSensor, LaneInvasionSensor, GnssSensor, IMUSensor
 
@@ -21,6 +23,14 @@ class World(object):
         self.world = carla_world
         self.actor_role_name = 'hero'
         self.map = self.world.get_map()
+
+        # Set World to have fixed frame-rate:
+        settings = self.world.get_settings()
+        # settings.synchronous_mode = True
+        settings.fixed_delta_seconds = 0.05
+        print('set fixed frame rate %.2f milliseconds (%d FPS)' % (1000.0 * settings.fixed_delta_seconds,
+                                                                   1.0 / settings.fixed_delta_seconds))
+        self.world.apply_settings(settings)
 
         self.player_max_speed = 1.589
         self.player_max_speed_fast = 3.713
@@ -52,6 +62,10 @@ class World(object):
         self.imu_sensor = None
         self.camera_manager = None
         self.sensor_image = None
+
+        # 3, 1 -> semantic-seg, front-position
+        self.initial_sensor_index = 0
+        self.initial_position_index = 1
 
         # Weather
         self._weather_presets = utils.find_weather_presets()
@@ -87,7 +101,7 @@ class World(object):
 
         return spent_time + collision_penalty + c * efficiency + destination
 
-    def reward(self, a=-1, b=-1000, c=1, d=-0.8):
+    def reward0(self, a=-1, b=-1000, c=1, d=2.0):
         """Returns a scalar reward."""
         # TODO: include the distance from vehicle to closest (or next) route waypoint.
         # TODO: include a penalty for law compliance: exceeding the speed limit, red traffic light...
@@ -107,13 +121,92 @@ class World(object):
         # Signal direction (i.e. next waypoint)
         direction = d * self.route.closest_path.distance
 
-        return spent_time + collision_penalty + c * efficiency + direction
+        closest_waypoint = self.route.closest_path.waypoint
+        similarity = utils.cosine_similarity(self.player.get_transform().get_forward_vector(),  # heading direction
+                                             closest_waypoint.transform.get_forward_vector())
+
+        if similarity < 0:
+            similarity = -1.0
+
+        return spent_time + collision_penalty + c * efficiency + direction * similarity
+
+    def reward_terms(self, a=-1.0, b=-1000.0, c=2.0, d=2.0):
+        # TODO: include a penalty for law compliance: exceeding the speed limit, red traffic light...
+
+        # Time term: go to destination as fast as possible
+        time_term = a
+
+        # Collision term (n. of collision between two tick): do as few collision as possible
+        collision_penalty = b * self.num_collisions
+
+        # Efficiency term: 0 if travelled_distance < route_size, -c otherwise
+        # if self.travelled_distance <= self.route.size:
+        #     efficiency_term = 0
+        # else:
+        #     efficiency_term = -c  # TODO: considerare una penalty proporzionale alla strata percorsa in più
+
+        # Direction term: alignment of the vehicle's heading direction with the waypoint's forward vector
+        closest_waypoint = self.route.closest_path.waypoint
+        similarity = utils.cosine_similarity(self.player.get_transform().get_forward_vector(),  # heading direction
+                                             closest_waypoint.transform.get_forward_vector())
+
+        # if 0 < similarity <= 1:
+        #     direction_penalty = d * similarity
+        # elif -1 <= similarity < 0:
+        #     direction_penalty = -d
+        # else:
+        #     direction_penalty = 0
+
+        speed = utils.speed(self.player)
+
+        if similarity > 0:
+            direction_penalty = (speed + 1) * similarity  # speed + 1, to avoid 0 speed
+        else:
+            direction_penalty = (speed + 1) * similarity * d
+
+        if speed < 10:
+            direction_penalty -= 1
+
+        if self.travelled_distance <= self.route.size:
+            efficiency_term = 0
+        else:
+            efficiency_term = -(self.travelled_distance - self.route.size) - self.distance_to_destination()
+            # efficiency_term = -self.distance_to_destination()
+
+            # travelled more than route size, zero direction_penalty if positive
+            if direction_penalty > 0:
+                direction_penalty = 0
+
+        # Speed-limit compliance:
+        speed_limit = self.player.get_speed_limit()
+        player_speed = utils.speed(self.player)
+
+        if player_speed <= speed_limit:
+            speed_penalty = 0
+        else:
+            speed_penalty = c * (speed_limit - player_speed)  # a negative number
+
+        # TODO: il planner oltre alla route indica cosa fare (e.g. 'LANE_FOLLOw',...) aggiungere una penalità anche
+        #  per questo, cioè se il veicolo non rispetta l'azione consigliata
+
+        return time_term, collision_penalty, efficiency_term, direction_penalty, speed_penalty
+
+    def reward(self, ):
+        """Returns a scalar reward."""
+        return sum(self.reward_terms())
+
+    def debug_reward(self, a=-1.0, b=-1000.0, c=1.0, d=2.0):
+        time, collision, efficiency, direction, speed = self.reward_terms()
+
+        total_reward = time + collision + efficiency + direction + speed
+        return "Reward (t: %.2f, c: %.2f, e: %.2f, d: %.2f, s: %.2f) = %.2f" % (time, collision, efficiency,
+                                                                                direction, speed, total_reward)
 
     def start(self):
         print('> worlds.start')
         # Keep same camera config if the camera manager exists.
-        cam_index = self.camera_manager.index if self.camera_manager is not None else 0
-        cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
+        cam_index = self.camera_manager.index if self.camera_manager is not None else self.initial_sensor_index
+        cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else self.initial_position_index
 
         blueprint = self._get_random_blueprint()
 
@@ -151,13 +244,13 @@ class World(object):
 
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud, callback=self.on_collision)
+        print(self.collision_sensor)
         self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
         self.gnss_sensor = GnssSensor(self.player)
         self.imu_sensor = IMUSensor(self.player)
 
         self.camera_manager = CameraManager(self.player, self.hud, callback=self.on_image)
         self.camera_manager.transform_index = cam_pos_index
-        # self.camera_manager.set_sensor(cam_index, force_respawn=True, notify=False)
         self.camera_manager.set_sensor(cam_index, notify=False)
         self.sensor_image = None
 
@@ -208,7 +301,10 @@ class World(object):
         gyroscope = self.imu_sensor.gyroscope
         accelerometer = self.imu_sensor.accelerometer
 
-        return [min(3.6 * utils.vector_norm(v), 150.0),
+        return [   # Speed and gear
+                utils.speed(self.player),
+                self.player.get_control().gear,
+                self.player.get_control().reverse,
                 # Accelerometer:
                 accelerometer[0],
                 accelerometer[1],
@@ -232,10 +328,12 @@ class World(object):
 
         # TODO: move the above 3 features to vehicle-features?
         speed_limit = self.player.get_speed_limit()
-        traffic_light_state = self.player.get_traffic_light_state()
         is_at_traffic_light = self.player.is_at_traffic_light()
 
-        print(f'speed-limit: {speed_limit}, traffic-light ({is_at_traffic_light}, {traffic_light_state})')
+        if is_at_traffic_light:
+            traffic_light_state = self.player.get_traffic_light_state()
+        else:
+            traffic_light_state = carla.TrafficLightState.Unknown
 
         return [waypoint.is_intersection,
                 waypoint.is_junction,
@@ -260,10 +358,12 @@ class World(object):
 
     def on_collision(self, event):
         """Just increase the number of collisions. The next 'tick' will erase this number."""
-        print('on_collision')
+        print('world.on_collision')
         actor = event.other_actor
+
         # TODO: discover the other_actor's type, if is human terminate the episode, if is a vehicle add a bigger penalty
         self.num_collisions += 1
+        assert False
 
     def tick(self, clock, debug=True):
         milliseconds = clock.get_time() / 1000
@@ -281,7 +381,7 @@ class World(object):
             worlds.debug.draw_route(self.debug, self.route.path, life_time=milliseconds * 2)
 
         # Clear collisions
-        # self.num_collisions = 0
+        self.num_collisions = 0  # Todo: collision count
 
         return reward
 

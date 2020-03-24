@@ -47,6 +47,23 @@ def vector_norm(vec: carla.Vector3D):
     return math.sqrt(vec.x**2 + vec.y**2 + vec.z**2)
 
 
+def speed(actor: carla.Actor):
+    """Returns the speed of the given actor in km/h."""
+    return 3.6 * vector_norm(actor.get_velocity())
+
+
+def dot_product(a: carla.Vector3D, b: carla.Vector3D):
+    return a.x * b.x + a.y * b.y + a.z * b.z
+
+
+def cosine_similarity(a: carla.Vector3D, b: carla.Vector3D):
+    """-1: opposite vectors (pointing in the opposite direction),
+        0: orthogonal,
+        1: exactly the same (pointing in the same direction)
+    """
+    return dot_product(a, b) / (vector_norm(a) * vector_norm(b))
+
+
 class Colors(object):
     """Wraps some carla.Color instances."""
     red = carla.Color(255, 0, 0)

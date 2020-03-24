@@ -4,7 +4,6 @@ import time
 import carla
 
 from worlds.utils import Colors, vector_norm
-from worlds.debug.graphics import HUD
 
 
 # -------------------------------------------------------------------------------------------------
@@ -30,14 +29,14 @@ def draw_vehicle_trail(world, vehicle, tick_time=0.2, life_time=60):
             # Check if the vehicle is on a sidewalk
             if current_w.lane_type == carla.LaneType.Sidewalk:
                 color = Colors.cyan if current_w.is_junction else Colors.red
-                _draw_waypoint_union(debug, current_w, next_w, color, life_time)
+                draw_waypoint_union(debug, current_w, next_w, color, life_time)
             else:
                 color = Colors.cyan if current_w.is_junction else Colors.green
-                _draw_waypoint_union(debug, current_w, next_w, color, life_time)
+                draw_waypoint_union(debug, current_w, next_w, color, life_time)
 
             speed = 3.6 * vector_norm(vec=vehicle.get_velocity())
             debug.draw_string(current_w.transform.location, str('%15.0f km/h' % speed), False, Colors.orange, life_time)
-            _draw_transform(debug, current_w.transform, Colors.white, life_time)
+            draw_transform(debug, current_w.transform, Colors.white, life_time)
 
         # Update the current waypoint and sleep for some time
         current_w = next_w
@@ -46,7 +45,7 @@ def draw_vehicle_trail(world, vehicle, tick_time=0.2, life_time=60):
 
 def draw_route(debug, route, life_time=60):
     for waypoint, road_op in route:
-        _draw_transform(debug, waypoint.transform, Colors.green, life_time)
+        draw_transform(debug, waypoint.transform, Colors.green, life_time)
         debug.draw_string(waypoint.transform.location, road_op.name, False, Colors.orange, life_time)
 
 
@@ -65,7 +64,7 @@ def draw_bounding_box(world):
 
 
 # https://github.com/carla-simulator/carla/blob/master/PythonAPI/util/lane_explorer.py
-def _draw_waypoint_union(debug, w0, w1, color=Colors.red, lt=5):
+def draw_waypoint_union(debug, w0, w1, color=Colors.red, lt=5):
     debug.draw_line(w0.transform.location + carla.Location(z=0.25),
                     w1.transform.location + carla.Location(z=0.25),
                     thickness=0.1, color=color, life_time=lt, persistent_lines=False)
@@ -73,7 +72,7 @@ def _draw_waypoint_union(debug, w0, w1, color=Colors.red, lt=5):
     debug.draw_point(w1.transform.location + carla.Location(z=0.25), 0.1, color, lt, False)
 
 
-def _draw_transform(debug, trans, col=Colors.red, lt=-1):
+def draw_transform(debug, trans, col=Colors.red, lt=-1):
     yaw_in_rad = math.radians(trans.rotation.yaw)
     pitch_in_rad = math.radians(trans.rotation.pitch)
 

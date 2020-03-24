@@ -1,5 +1,6 @@
 """A collection of sensors helpers."""
 
+import numpy as np
 import carla
 
 from worlds import utils
@@ -7,30 +8,83 @@ from worlds import utils
 import math
 import collections
 
+# TODO: add support for other sensors: lidar, radar, depth camera etc.
+
 
 class Sensor(object):
     """Base class for sensor wrappers."""
-    def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), callback=None):
+    def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), attachment_type=None, callback=None):
         self.parent = parent_actor
         self.world = self.parent.get_world()
-        self.on_event_callback = callback
+        self.event_callbacks = [callback] if callback is not None else []  # TODO: migliorare API
 
-        self.sensor = self._spawn(transform)
-        self.sensor.listen(self.on_event)
+        self.sensor = self._spawn(transform, attachment_type)
+        # self.sensor.listen(self.on_event)
 
     @property
     def name(self):
         raise NotImplementedError
 
-    def _spawn(self, transform):
+    def add_callback(self, callback):
+        if callback is not None:
+            self.event_callbacks.append(callback)
+
+    @staticmethod
+    def create(sensor_name, **kwargs):
+        if sensor_name in ['collision', 'collision_detector', 'collision_sensor']:
+            return CollisionSensor(**kwargs)
+
+        elif sensor_name in ['lane', 'lane_sensor', 'lane_invasion_sensor']:
+            return LaneInvasionSensor(**kwargs)
+
+        elif sensor_name in ['gnss', 'gnss_sensor']:
+            return GnssSensor(**kwargs)
+
+        elif sensor_name in ['imu', 'imu_sensor']:
+            return IMUSensor(**kwargs)
+
+        elif sensor_name in ['camera', 'camera.rgb', 'camera_sensor', 'rgb_camera']:
+            return RGBCameraSensor(**kwargs)
+
+        elif sensor_name in ['semantic_camera', 'semantic_segmentation_camera', 'semantic_camera_sensor']:
+            return SemanticCameraSensor(**kwargs)
+
+        else:
+            raise ValueError(f'Cannot create sensor `{sensor_name}`')
+
+    def start(self):
+        """Start listening for events"""
+        if not self.sensor.is_listening:
+            self.sensor.listen(self.on_event)
+        else:
+            print(f'Sensor {self.name} is already been started!')
+
+    def stop(self):
+        """Stop listening for events"""
+        self.sensor.stop()
+
+    def _spawn(self, transform, attachment_type=None,):
         """Spawns itself within a carla.World."""
-        sensor_bp = self.world.get_blueprint_library().find(self.name)
-        sensor_actor = self.world.spawn_actor(sensor_bp, transform, attach_to=self.parent)
+        if attachment_type is None:
+            attachment_type = carla.AttachmentType.Rigid
+
+        sensor_bp: carla.ActorBlueprint = self.world.get_blueprint_library().find(self.name)
+
+        if sensor_bp.has_attribute('sensor_tick'):
+            pass
+            # sensor_bp.set_attribute('sensor_tick', '0.033')
+        else:
+            print(f'Sensor {self.name} has no attribute `sensor_tick`')
+
+        sensor_actor = self.world.spawn_actor(sensor_bp, transform, self.parent, attachment_type)
+        # sensor_actor = self.world.spawn_actor(sensor_bp, transform,
+        #                                       attach_to=self.parent,
+        #                                       attachment=attachment_type)
         return sensor_actor
 
     def on_event(self, event):
-        if self.on_event_callback is not None:
-            self.on_event_callback(event)
+        for callback in self.event_callbacks:
+            callback(event)
 
     def destroy(self):
         if self.sensor is not None:
@@ -40,6 +94,43 @@ class Sensor(object):
 
         self.parent = None
         self.world = None
+
+
+# -------------------------------------------------------------------------------------------------
+# -- Camera Sensors
+# -------------------------------------------------------------------------------------------------
+
+class CameraSensor(Sensor):
+    def __init__(self, color_converter=carla.ColorConverter.Raw, **kwargs):
+        super().__init__(**kwargs)
+        self.color_converter = color_converter
+
+    @property
+    def name(self):
+        raise NotImplementedError
+
+    # def on_event(self, event):
+    #     super().on_event(event)
+
+    def convert_image(self, image: carla.Image, dtype=np.dtype("uint8")):
+        image.convert(self.color_converter)
+        array = np.frombuffer(image.raw_data, dtype=dtype)
+        array = np.reshape(array, (image.height, image.width, 4))
+        array = array[:, :, :3]
+        array = array[:, :, ::-1]
+        return array
+
+
+class RGBCameraSensor(CameraSensor):
+    @property
+    def name(self):
+        return 'sensor.camera.rgb'
+
+
+class SemanticCameraSensor(CameraSensor):
+    @property
+    def name(self):
+        return 'sensor.camera.semantic_segmentation'
 
 
 # -------------------------------------------------------------------------------------------------
@@ -107,7 +198,8 @@ class LaneInvasionSensor(Sensor):
         lane_types = set(x.type for x in event.crossed_lane_markings)
         text = ['%r' % str(x).split()[-1] for x in lane_types]
 
-        self.hud.notification('Crossed line %s' % ' and '.join(text))
+        # TODO: uncomment
+        # self.hud.notification('Crossed line %s' % ' and '.join(text))
 
     def destroy(self):
         super().destroy()
@@ -146,8 +238,8 @@ class GnssSensor(Sensor):
 class IMUSensor(Sensor):
     def __init__(self, parent_actor, callback=None):
         super().__init__(parent_actor)
-        self.accelerometer = ()
-        self.gyroscope = ()
+        self.accelerometer = (0.0, 0.0, 0.0)
+        self.gyroscope = (0.0, 0.0, 0.0)
         self.compass = 0.0
 
     @property
@@ -180,56 +272,56 @@ class IMUSensor(Sensor):
 # -------------------------------------------------------------------------------------------------
 # -- Camera Sensor(s) Wrapper
 # -------------------------------------------------------------------------------------------------
-
-class CameraSensor(object):
-    """Wraps a single camera sensor for ease of use within a CameraManager"""
-    # TODO: use logger insted of print for warning statement
-
-    def __init__(self, kind: str, name: str, color_converter=carla.ColorConverter.Raw):
-        """@:arg kind: one of 'rgb', 'depth', 'semantic_segmentation'."""
-        # TODO: add LIDAR and RADAR support?
-        self.kind = kind
-        self.name = name
-        self.color_converter = color_converter
-        self.blueprint = None
-        self.callback = None
-        self.actor = None
-
-    def load_blueprint(self, blueprint_library):
-        """Uses the blueprint_library to find itself according to self.kind"""
-        self.blueprint = blueprint_library.find('sensor.camera.' + self.kind)
-
-    def spawn_actor(self, world: carla.World, transform: carla.Transform, attach_to: carla.Actor, attachment_type: carla.AttachmentType):
-        """Spawns itself within a carla.World."""
-        if self.blueprint is None:
-            raise ValueError('Blueprint is None, call "load_blueprint()" before "spawn_actor"!')
-
-        if self.actor is not None:
-            print('[Warning] CameraSensor.spawn_actor: actor not None, destroying it before been spawn!')
-            self.actor.destroy()
-
-        self.actor = world.spawn_actor(self.blueprint, transform, attach_to, attachment_type)
-
-    def set_attributes(self, **kwargs):
-        for key, value in kwargs.items():
-            if self.blueprint.has_attribute(key):
-                self.blueprint.set_attribute(key, value)
-            else:
-                print(f'[Warning] CameraSensor.set_attributes: attribute "{key}" is not available for ' +
-                      f'sensor {self.kind}!')
-
-    def listen(self, callback):
-        pass
-
-    def destroy(self):
-        if self.actor is not None:
-            self.actor.destroy()
-            self.actor = None
-
-        self.blueprint = None
-        self.callback = None
-
-
-class CombinedCameraSensor(CameraSensor):
-    """Wraps multiple sensors as a single one."""
-    pass
+#
+# class CameraSensor(object):
+#     """Wraps a single camera sensor for ease of use within a CameraManager"""
+#     # TODO: use logger insted of print for warning statement
+#
+#     def __init__(self, kind: str, name: str, color_converter=carla.ColorConverter.Raw):
+#         """@:arg kind: one of 'rgb', 'depth', 'semantic_segmentation'."""
+#         # TODO: add LIDAR and RADAR support?
+#         self.kind = kind
+#         self.name = name
+#         self.color_converter = color_converter
+#         self.blueprint = None
+#         self.callback = None
+#         self.actor = None
+#
+#     def load_blueprint(self, blueprint_library):
+#         """Uses the blueprint_library to find itself according to self.kind"""
+#         self.blueprint = blueprint_library.find('sensor.camera.' + self.kind)
+#
+#     def spawn_actor(self, world: carla.World, transform: carla.Transform, attach_to: carla.Actor, attachment_type: carla.AttachmentType):
+#         """Spawns itself within a carla.World."""
+#         if self.blueprint is None:
+#             raise ValueError('Blueprint is None, call "load_blueprint()" before "spawn_actor"!')
+#
+#         if self.actor is not None:
+#             print('[Warning] CameraSensor.spawn_actor: actor not None, destroying it before been spawn!')
+#             self.actor.destroy()
+#
+#         self.actor = world.spawn_actor(self.blueprint, transform, attach_to, attachment_type)
+#
+#     def set_attributes(self, **kwargs):
+#         for key, value in kwargs.items():
+#             if self.blueprint.has_attribute(key):
+#                 self.blueprint.set_attribute(key, value)
+#             else:
+#                 print(f'[Warning] CameraSensor.set_attributes: attribute "{key}" is not available for ' +
+#                       f'sensor {self.kind}!')
+#
+#     def listen(self, callback):
+#         pass
+#
+#     def destroy(self):
+#         if self.actor is not None:
+#             self.actor.destroy()
+#             self.actor = None
+#
+#         self.blueprint = None
+#         self.callback = None
+#
+#
+# class CombinedCameraSensor(CameraSensor):
+#     """Wraps multiple sensors as a single one."""
+#     pass

@@ -9,15 +9,20 @@ from pygame.constants import K_BACKSPACE, K_TAB, K_c, KMOD_SHIFT, K_BACKQUOTE, K
 # -------------------------------------------------------------------------------------------------
 # -- Keyboard Controller
 # -------------------------------------------------------------------------------------------------
+from worlds.navigation.basic_agent import BasicAgent
+from worlds.navigation.behavior_agent import BehaviorAgent
+
+
+# TODO: make a controller abstract class!
+
 
 class KeyboardController(object):
     """KeyboardController: control the player's vehicle with keyboard."""
 
-    def __init__(self, world):
-        # assert isinstance(world.player, carla.Vehicle)
-
+    def __init__(self):
         self._control = carla.VehicleControl()
         self._steer_cache = 0.0
+        self._autopilot_enabled = False
 
     def parse_events(self, client, world, clock, training=False):
         for event in pygame.event.get():
@@ -89,11 +94,16 @@ class KeyboardController(object):
                 if event.key == K_q:
                     self._control.gear = 1 if self._control.reverse else -1
 
+                elif event.key == K_p and not (pygame.key.get_mods() & KMOD_CTRL):
+                    self._autopilot_enabled = not self._autopilot_enabled
+                    world.player.set_autopilot(self._autopilot_enabled)
+                    world.hud.notification('Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
+
         # apply control to vehicle
         if not training:
             self._parse_vehicle_keys(keys=pygame.key.get_pressed(), milliseconds=clock.get_time())
             self._control.reverse = self._control.gear < 0
-            world.player.apply_control(self._control)
+            world.apply_control(self._control)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
         self._control.throttle = 1.0 if keys[K_UP] or keys[K_w] else 0.0
@@ -121,3 +131,64 @@ class KeyboardController(object):
     @staticmethod
     def _is_quit_shortcut(key):
         return (key == K_ESCAPE) or (key == K_q and pygame.key.get_mods() & KMOD_CTRL)
+
+
+class ManualVehicleController(object):
+    def __init__(self, clock: pygame.time.Clock()):
+        self.steer_cache = 0.0
+        self.clock = clock
+        self.control = carla.VehicleControl()
+
+    def parse_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.KEYUP:
+                if event.key == K_q:
+                    self.control.gear = 1 if self.control.reverse else -1
+
+        self.control.reverse = self.control.gear < 0
+        keys = pygame.key.get_pressed()
+
+        throttle = 1.0 if keys[K_UP] or keys[K_w] else -1.0
+        steer_increment = 5e-4 * self.clock.get_time()
+
+        if keys[K_LEFT] or keys[K_a]:
+            if self.steer_cache > 0:
+                self.steer_cache = 0
+            else:
+                self.steer_cache -= steer_increment
+
+        elif keys[K_RIGHT] or keys[K_d]:
+            if self.steer_cache < 0:
+                self.steer_cache = 0
+            else:
+                self.steer_cache += steer_increment
+        else:
+            self.steer_cache = 0.0
+
+        self.steer_cache = min(1.0, max(-1.0, self.steer_cache))
+        steer = round(self.steer_cache, 1)
+        brake = 1.0 if keys[K_DOWN] or keys[K_s] else -1.0
+        reverse = 1.0 if self.control.reverse else -1.0
+        hand_brake = -1.0
+
+        return [throttle, steer, brake, reverse, hand_brake]
+
+
+class BasicAgentController:
+    def __init__(self, vehicle, destination: carla.Location, target_speed=30):
+        self.agent = BasicAgent(vehicle, target_speed)
+        self.agent.set_destination(location=destination)
+
+    def act(self):
+        return self.agent.run_step()
+
+
+class BehaviorAgentController:
+    def __init__(self, vehicle: carla.Vehicle, destination: carla.Location, ignore_traffic_light=False):
+        self.agent = BehaviorAgent(vehicle, ignore_traffic_light)
+        self.agent.set_destination(start_location=vehicle.get_location(),
+                                   end_location=destination,
+                                   clean=True)
+
+    def act(self):
+        return self.agent.run_step()
