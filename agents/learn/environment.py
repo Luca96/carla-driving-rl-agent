@@ -71,7 +71,7 @@ class CarlaEnvironment(Environment):
 
         # graphics:
         self.world = World(self.client.get_world(),
-                           hud=HUD(width=self.window_size[0], height=self.window_size[1]),
+                           window_size=self.window_size,
                            actor_filter=self.actor_filter,
                            init=False)  # prevents the call of 'start()'
         self.max_fps = max_fps
@@ -277,6 +277,12 @@ class SynchronousCARLAEnvironment(Environment):
         self.debug_helper: carla.DebugHelper = self.world.debug
         self.synchronous_context = None
 
+        # set fix fps:
+        self.world.apply_settings(carla.WorldSettings(
+            no_rendering_mode=False,
+            synchronous_mode=False,
+            fixed_delta_seconds=1.0 / fps))
+
         # vehicle
         self.vehicle_filter = vehicle_filter
         self.vehicle: carla.Vehicle = None
@@ -421,7 +427,9 @@ class SynchronousCARLAEnvironment(Environment):
     def close(self):
         print('env.close')
         super().close()
-        self.vehicle.destroy()
+
+        if self.vehicle:
+            self.vehicle.destroy()
 
         for sensor in self.sensors.values():
             sensor.destroy()

@@ -6,6 +6,7 @@ import pygame
 
 import worlds.debug
 import worlds.utils as utils
+import worlds.debug.graphics as world_graphics
 
 from worlds.utils import WAYPOINT_DICT
 from worlds.navigation import RoutePlanner
@@ -17,7 +18,7 @@ from worlds.sensors import CollisionSensor, LaneInvasionSensor, GnssSensor, IMUS
 class World(object):
     """A high-level wrapper of a carla.World instance."""
 
-    def __init__(self, carla_world, hud, actor_filter, map='Town1', route_resolution=2.0, init=True):
+    def __init__(self, carla_world, window_size: (int, int), actor_filter, map='Town1', route_resolution=2.0, init=True):
         # TODO: implement loading a specific map.
         print('### WORLD::INIT ###')
         self.world = carla_world
@@ -27,7 +28,7 @@ class World(object):
         # Set World to have fixed frame-rate:
         settings = self.world.get_settings()
         # settings.synchronous_mode = True
-        settings.fixed_delta_seconds = 0.05
+        settings.fixed_delta_seconds = 0.05 - 0.01
         print('set fixed frame rate %.2f milliseconds (%d FPS)' % (1000.0 * settings.fixed_delta_seconds,
                                                                    1.0 / settings.fixed_delta_seconds))
         self.world.apply_settings(settings)
@@ -52,7 +53,7 @@ class World(object):
         self.current_waypoint = None
         self.next_waypoint = None
 
-        self.hud = hud
+        self.hud = world_graphics.HUD(world=self, width=window_size[0], height=window_size[1])
         self.player = None
 
         # Sensors
@@ -75,7 +76,7 @@ class World(object):
         if init:
             self.start()
 
-        self.world.on_tick(hud.on_world_tick)
+        self.world.on_tick(self.hud.on_world_tick)
         self.recording_enabled = False
         self.recording_start = 0
 
@@ -373,7 +374,7 @@ class World(object):
         self.route.update_closest_waypoint(location=self.player.get_location())
 
         reward = self.reward()
-        self.hud.tick(self, clock)
+        self.hud.tick(clock)
 
         if debug:
             # self.debug_vehicle_trail(life_time=milliseconds * 10)

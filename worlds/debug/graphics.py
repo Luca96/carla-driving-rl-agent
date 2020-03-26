@@ -7,7 +7,6 @@ import pygame
 
 import worlds.utils as utils
 import worlds.tools.misc as misc
-from worlds import World
 from worlds.navigation import Route
 
 from worlds.sensors import Sensor, IMUSensor
@@ -123,8 +122,8 @@ class DebugInfo(object):
 
 class HUD(DebugInfo):
     """HUD: provides a pygame window that shows what the vehicle sees, some statistics, etc."""
-    def __init__(self, width: int, height: int, world: World, **kwargs):
-        assert isinstance(world, World)
+    def __init__(self, world, width: int, height: int, **kwargs):
+        assert world.__class__.__name__ == 'World'
         super().__init__(width, height, **kwargs)
         self.world = world
 

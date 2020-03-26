@@ -127,7 +127,7 @@ def spawn_actor(world: carla.World, blueprint: carla.ActorBlueprint, spawn_point
 def resize(image, size: (int, int), interpolation=cv2.INTER_CUBIC):
     """Resize the given image.
         :param image: a numpy array with shape (height, width, channels).
-        :param size: (height, width) to resize the image to.
+        :param size: (width, height) to resize the image to.
         :param interpolation: Default: cv2.INTER_CUBIC.
         :return: the reshaped image.
     """

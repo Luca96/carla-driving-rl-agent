@@ -39,8 +39,8 @@ class CARLASyncContext(object):
         self._settings = self.world.get_settings()
         self.frame = self.world.apply_settings(carla.WorldSettings(
             no_rendering_mode=False,
-            synchronous_mode=True,
-            fixed_delta_seconds=self.delta_seconds))
+            fixed_delta_seconds=self.delta_seconds,
+            synchronous_mode=True))
 
         for sensor in self.sensors.values():
             sensor.start()
@@ -57,10 +57,7 @@ class CARLASyncContext(object):
         return data
 
     def __exit__(self, *args, **kwargs):
-        # self.world.apply_settings(self._settings)
-        self.world.apply_settings(carla.WorldSettings(
-            no_rendering_mode=False,
-            synchronous_mode=False))
+        self.world.apply_settings(self._settings)
 
         for sensor in self.sensors.values():
             sensor.stop()

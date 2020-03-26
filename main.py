@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import tensorflow as tf
 import tensorforce
+from tensorforce.agents import TensorforceAgent
 
 from tqdm import tqdm
 from tensorforce import Runner, Environment, Agent
@@ -96,7 +97,7 @@ def tensorboard_summarizer(directory='data/summaries', frequency=100):
 
 
 def test_new_env(agent_builder, timesteps, episodes, vehicle='vehicle.tesla.model3', width=800, height=600,
-                 image_shape=(200, 150, 3), **kwargs):
+                 image_shape=(150, 200, 3), **kwargs):
     pygame.init()
     pygame.font.init()
 
@@ -157,7 +158,7 @@ def test_new_env(agent_builder, timesteps, episodes, vehicle='vehicle.tesla.mode
 
 
 def test_sync_event(agent_builder, timesteps, episodes, vehicle='vehicle.tesla.model3', width=800, height=600,
-                    image_shape=(200, 150, 3), **kwargs):
+                    image_shape=(150, 200, 3), **kwargs):
     pygame.init()
     pygame.font.init()
     sync_env = None
@@ -168,41 +169,56 @@ def test_sync_event(agent_builder, timesteps, episodes, vehicle='vehicle.tesla.m
                                                window_size=(width, height),
                                                timeout=5.0,
                                                debug=True,
+                                               fps=15,
                                                vehicle_filter=vehicle)
         print('== ENV ==')
 
         agent = agent_builder(sync_env, max_episode_timesteps=timesteps, **kwargs)
         print('== AGENT ==')
 
-        for episode in range(episodes):
-            states = sync_env.reset()
-            terminal = False
-            total_reward = 0.0
+        if True:
+            for episode in range(episodes):
+                states = sync_env.reset()
+                terminal = False
+                total_reward = 0.0
+
+                with sync_env.synchronous_context:
+                    for i in tqdm(range(timesteps), desc=f'E-{episode} [{total_reward}]'):
+                        actions = agent.act(states)
+                        states, terminal, reward = sync_env.execute(actions)
+                        total_reward += reward
+
+                        terminal = terminal or i == timesteps - 1  # hack for recorder
+
+                        # # print('reward:', reward)
+                        update_performed = agent.observe(reward, terminal)
+
+                        if update_performed:
+                            print(f'{i}/{timesteps} -> update performed.')
+
+                        if terminal:
+                            print('Episode ended.')
+                            break
+
+                print(f'E-{episode} total_reward: {round(total_reward, 2)}')
+
+                agent.save(directory='weights/agents', filename='carla-agent')
+                print('Agent saved.')
+        else:
+            # runner hack:
+            sync_env.reset()
 
             with sync_env.synchronous_context:
-                for i in tqdm(range(timesteps), desc=f'E-{episode} [{total_reward}]'):
-                    actions = agent.act(states)
-                    states, terminal, reward = sync_env.execute(actions)
-                    total_reward += reward
+                runner = Runner(agent, sync_env, max_episode_timesteps=timesteps)
+                runner.run(num_episodes=episodes)
 
-                    # # print('reward:', reward)
-                    update_performed = agent.observe(reward, terminal)
+                # runner = Runner(agent, environment=sync_env, num_parallel=2)
+                # runner.run(num_episodes=episodes, batch_agent_calls=True)
 
-                    if update_performed:
-                        print(f'{i}/{timesteps} -> update performed.')
+                # agent.save(directory='weights/agents', filename='carla-agent')
+                # print('agent saved.')
 
-                    if terminal:
-                        break
-
-            print(f'E-{episode} total_reward: {round(total_reward, 2)}')
-
-            # agent.save(directory='weights/agents', filename='carla-agent')
-            # print('agent saved.')
-
-        # runner = Runner(agent, sync_env, max_episode_timesteps=timesteps, num_parallel=None)
-        # runner.run(num_episodes=episodes)
-
-        # runner.run(num_episodes=1, save_best_agent='weights/agents', evaluation=True)
+                # runner.run(num_episodes=1, save_best_agent='weights/agents', evaluation=True)
 
     finally:
         if runner:
@@ -241,8 +257,8 @@ def test_pretrain(episodes, timesteps, **kwargs):
 
 
 if __name__ == '__main__':
-    # TODO: to make Tensorforce work with tensorflow 2.0.1,
-    #  comment two lines in '/usr/lib/python3.8/site-packages/tensorflow_core/lite/experimental/microfrontend/python/ops
+    # TODO: to make Tensorforce work with tensorflow 2.0.1, comment line 29 and 30 in
+    #  '/usr/lib/python3.8/site-packages/tensorflow_core/lite/experimental/microfrontend/python/ops
     #  /audio_microfrontend_op.py'
 
     # game_loop()
@@ -255,41 +271,46 @@ if __name__ == '__main__':
     frequency = 64
     batch_size = 256
 
-    agent_args = dict(policy=dict(type='parametrized_distributions',
-                                  network=network,
-                                  temperature=0.95),
+    # TODO: make everything on-policy: use recent memory, add internal-RNN, ...
+
+    agent_args = dict(policy=specs.policy(network=network,
+                                          infer_states_value=False,
+                                          temperature=0.95),
 
                       optimizer=dict(type='adam', learning_rate=3e-4),
 
-                      objective=specs.obj.policy_gradient(clipping_value=0.2),
+                      objective=specs.obj.policy_gradient(clipping_value=0.2, early_reduce=True),
 
                       # update=specs.update(unit='timesteps', batch_size=0, frequency='never'),
                       update=specs.update(unit='timesteps', batch_size=batch_size, frequency=frequency),
 
+                      memory=dict(type='recent'),
+
                       # Baseline (critic)
-                      baseline_policy=dict(type='parametrized_distributions',
-                                           distributions=dict(float='gaussian'),
-                                           network=network,
-                                           temperature=0.99),
+                      baseline_policy=specs.policy(distributions='gaussian',
+                                                   network=network,
+                                                   infer_states_value=False,
+                                                   temperature=0.99),
                       baseline_optimizer=dict(type='adam', learning_rate=0.0003),
-                      baseline_objective=specs.obj.value(value='state', huber_loss=0.1),
+                      baseline_objective=specs.obj.value(value='state', huber_loss=0.1, early_reduce=True),
 
                       reward_estimation=dict(discount=1.0,
                                              horizon=100,
                                              estimate_horizon='early',
-                                             # estimate_actions=False,
-                                             estimate_advantage=True),
+                                             # estimate_actions=True,
+                                             estimate_advantage=True
+                                             ),
 
                       # preprocessing=dict(previous_actions=dict(type='deltafier'),
                       #                    reward=dict(type='deltafier')),
 
-
-                      # preprocessing=dict(image=dict(type='image', height=60, width=60, grayscale=True)),
+                      # TODO: se si riduce ulteriormente la taglia dell'immagine, rimuovere qualche conv dal modello
+                      preprocessing=dict(image=dict(type='image', width=100, height=75, grayscale=True)),
                       # preprocessing=dict(image=dict(type='image', grayscale=True)),
 
                       # preprocessing=dict(type='deltafier'),
 
-                      # recorder=dict(directory='data/traces'),
+                      recorder=dict(directory='data/traces', frequency=1),
 
                       exploration=0.05,  # exp_decay(steps=50, rate=0.5),
                       entropy_regularization=0.1)

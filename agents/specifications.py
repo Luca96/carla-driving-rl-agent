@@ -15,14 +15,14 @@ class Objectives:
                     objective2=objective2)
 
     @staticmethod
-    def policy_gradient(ratio_based=False, clipping_value=0.0, early_reduce=False):
+    def policy_gradient(ratio_based=False, clipping_value=0.0, early_reduce=True):
         return dict(type='policy_gradient',
                     ratio_based=ratio_based,
                     clipping_value=clipping_value,
                     early_reduce=early_reduce)
 
     @staticmethod
-    def value(value='state', huber_loss=0.0, early_reduce=False):
+    def value(value='state', huber_loss=0.0, early_reduce=True):
         return dict(type='value',
                     value=value,
                     huber_loss=huber_loss,
@@ -214,8 +214,9 @@ class Specifications:
                     estimate_advantage=estimate_advantage)
 
     @staticmethod
-    def policy(network: dict, distributions: str = None, temperature=0.0):
+    def policy(network: dict, distributions: str = None, temperature=0.0, infer_states_value=False):
         return dict(type='parametrized_distributions',
+                    infer_states_value=infer_states_value,
                     distributions=dict(type=distributions) if isinstance(distributions, str) else None,
                     network=network,
                     temperature=temperature)
@@ -237,7 +238,7 @@ class Specifications:
     @staticmethod
     def agent_light_network():
         return Networks.complex(networks=[
-            Networks.convolutional(inputs='image', layers=1, initial_filters=32, stride=32, pool='max', output='image_out'),
+            Networks.convolutional(inputs='image', layers=1, initial_filters=3, stride=32, pool='max', output='image_out'),
             Networks.dense(inputs='vehicle_features', layers=1, units=1, output='vehicle_out'),
             Networks.dense(inputs='road_features', layers=1, units=1, output='road_out'),
             Networks.dense(inputs='previous_actions', layers=1, units=1, output='actions_out')],
