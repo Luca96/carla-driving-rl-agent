@@ -1,25 +1,42 @@
 """A collection of sensors helpers."""
 
-import numpy as np
-import carla
-
-from worlds import utils
-
 import math
 import collections
+import numpy as np
+import carla
+import time
+
+from worlds import utils
+from functools import wraps
 
 # TODO: add support for other sensors: lidar, radar, depth camera etc.
 
 
+def profile(fn):
+    @wraps(fn)
+    def with_profiling(*args, **kwargs):
+        start_time = time.time()
+        ret = fn(*args, **kwargs)
+
+        elapsed_time = time.time() - start_time
+        # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
+        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+
+        return ret
+
+    return with_profiling
+
+
 class Sensor(object):
     """Base class for sensor wrappers."""
-    def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), attachment_type=None, callback=None):
+    def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), attachment_type=None, callback=None,
+                 attributes: dict = None):
         self.parent = parent_actor
         self.world = self.parent.get_world()
         self.event_callbacks = [callback] if callback is not None else []  # TODO: migliorare API
 
-        self.sensor = self._spawn(transform, attachment_type)
-        # self.sensor.listen(self.on_event)
+        # detector-sensors retrieve data only when triggered (not at each tick!)
+        self.sensor, self.is_detector = self._spawn(transform, attachment_type, attributes or dict())
 
     @property
     def name(self):
@@ -28,6 +45,9 @@ class Sensor(object):
     def add_callback(self, callback):
         if callback is not None:
             self.event_callbacks.append(callback)
+
+    def clear_callbacks(self):
+        self.event_callbacks.clear()
 
     @staticmethod
     def create(sensor_name, **kwargs):
@@ -63,24 +83,23 @@ class Sensor(object):
         """Stop listening for events"""
         self.sensor.stop()
 
-    def _spawn(self, transform, attachment_type=None,):
+    def _spawn(self, transform, attachment_type=None, attributes: dict = None):
         """Spawns itself within a carla.World."""
         if attachment_type is None:
             attachment_type = carla.AttachmentType.Rigid
 
         sensor_bp: carla.ActorBlueprint = self.world.get_blueprint_library().find(self.name)
 
-        if sensor_bp.has_attribute('sensor_tick'):
-            pass
-            # sensor_bp.set_attribute('sensor_tick', '0.033')
-        else:
-            print(f'Sensor {self.name} has no attribute `sensor_tick`')
+        for attr, value in attributes.items():
+            if sensor_bp.has_attribute(attr):
+                sensor_bp.set_attribute(attr, str(value))
+            else:
+                print(f'Sensor {self.name} has no attribute `{attr}`')
 
         sensor_actor = self.world.spawn_actor(sensor_bp, transform, self.parent, attachment_type)
-        # sensor_actor = self.world.spawn_actor(sensor_bp, transform,
-        #                                       attach_to=self.parent,
-        #                                       attachment=attachment_type)
-        return sensor_actor
+        is_detector = not sensor_bp.has_attribute('sensor_tick')
+
+        return sensor_actor, is_detector
 
     def on_event(self, event):
         for callback in self.event_callbacks:
@@ -109,11 +128,10 @@ class CameraSensor(Sensor):
     def name(self):
         raise NotImplementedError
 
-    # def on_event(self, event):
-    #     super().on_event(event)
-
     def convert_image(self, image: carla.Image, dtype=np.dtype("uint8")):
-        image.convert(self.color_converter)
+        if self.color_converter is not carla.ColorConverter.Raw:
+            image.convert(self.color_converter)
+
         array = np.frombuffer(image.raw_data, dtype=dtype)
         array = np.reshape(array, (image.height, image.width, 4))
         array = array[:, :, :3]

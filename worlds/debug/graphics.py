@@ -293,6 +293,40 @@ class CARLADebugInfo(DebugInfo):
         ]
 
 
+class CARLADebugInfoSmall(DebugInfo):
+    """Provides debugging facilities for SynchronousCARLAEnvironment"""
+    def __init__(self, width: int, height: int, environment, **kwargs):
+        # TODO: ugly check: cannot import class due to circular reference :(
+        assert environment.__class__.__name__ == 'SynchronousCARLAEnvironment'
+        super().__init__(width, height, **kwargs)
+        self.environment = environment
+
+    def tick(self, clock: pygame.time.Clock):
+        env = self.environment
+
+        vehicle = env.vehicle
+        world: carla.World = env.world
+
+        c = vehicle.get_control()
+
+        self._info_text = [
+            'FPS % 20d' % clock.get_fps(),
+            'Speed:   % 15.0f km/h' % utils.speed(vehicle),
+            '',
+            'Throttle: %.2f' % c.throttle,
+            'Steer: %.2f' % c.steer,
+            'Brake: %.2f' % c.brake,
+            ('Reverse:', c.reverse),
+            ('Hand brake:', c.hand_brake),
+            'Gear: %s' % {-1: 'R', 0: 'N'}.get(c.gear, c.gear),
+            '',
+            'Reward % 20.2f' % env.reward(),
+            'Collision: %d' % env.num_collisions,
+            'Skill: %s' % env.get_skill_name(),
+            f'action_penalty: %.2f' % env._action_penalty(env.prev_actions)
+        ]
+
+
 # -------------------------------------------------------------------------------------------------
 # -- Fading Text
 # -------------------------------------------------------------------------------------------------

@@ -223,17 +223,22 @@ class Specifications:
 
     @staticmethod
     def agent_network():
+        # TODO: embedd actions, and features before dense layers??
+        # TODO: add RNN
+        # TODO: image-ratio preserving convolutional kernels, e.g. (3, 2) or (2, 3) instead of (3, 3)
+        # TODO: image stack 4-images (i.e. concat depth)?? or stack last-4 states and actions?
+
         return Networks.complex(networks=[
-            Networks.convolutional(inputs='image', layers=5, stride=2, pool=None, dropout=0.2,
+            Networks.convolutional(inputs='image', layers=5-2, stride=2, pool=None, dropout=0.2,
                                    output='image_out'),
             Networks.dense(inputs='vehicle_features', layers=2, units=32, dropout=0.2,
                            output='vehicle_out'),
             Networks.dense(inputs='road_features', layers=2, units=24, dropout=0.2,
                            output='road_out'),
-            Networks.dense(inputs='previous_actions', layers=1, units=16, dropout=0.2,
+            Networks.dense(inputs='previous_actions', layers=2, units=16, dropout=0.2,
                            output='actions_out')],
             layers=2,
-            units=200)
+            units=256)
 
     @staticmethod
     def agent_light_network():

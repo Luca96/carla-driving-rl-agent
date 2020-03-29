@@ -5,10 +5,12 @@ import pygame
 
 from tensorforce.environments import Environment
 
+from agents.learn import env_utils
+from agents.learn.env_utils import Profiler, profile
+
 from worlds import World, Route, RoutePlanner, WAYPOINT_DICT
 from worlds.sensors import *
-from worlds.debug.graphics import HUD, CARLADebugInfo
-from agents.learn import env_utils
+from worlds.debug.graphics import HUD, CARLADebugInfo, CARLADebugInfoSmall
 from worlds.tools import misc
 from worlds.tools.synchronous_mode import CARLASyncContext
 
@@ -254,12 +256,21 @@ class SynchronousCARLAEnvironment(Environment):
 
     # default sensors specification
     # TODO: sensor class specification to shorten the definition of sensors? At least for cameras=
-    DEFAULT_SENSORS = dict(imu=True,
-                           # collision_detector=True,
-                           rgb_camera=dict(transform=carla.Transform(carla.Location(x=-5.5, z=2.5),
-                                                                     carla.Rotation(pitch=8.0)),
-                                           attachment_type=carla.AttachmentType.SpringArm,
-                                           color_converter=carla.ColorConverter.Raw))
+    # DEFAULT_SENSORS = dict(imu=True,
+    #                        # collision_detector=True,
+    #                        rgb_camera=dict(transform=carla.Transform(carla.Location(x=-5.5, z=2.5),
+    #                                                                  carla.Rotation(pitch=8.0)),
+    #                                        attachment_type=carla.AttachmentType.SpringArm,
+    #                                        color_converter=carla.ColorConverter.Raw,
+    #                                        attributes=dict(image_size_x=200, image_size_y=150)))
+    DEFAULT_SENSORS = dict(imu=dict(type='sensor.other.imu'),
+                           collision=dict(type='sensor.other.collision'),
+                           camera=dict(type='sensor.camera.rgb',
+                                       transform=carla.Transform(carla.Location(x=-5.5, z=2.5),
+                                                                 carla.Rotation(pitch=8.0)),
+                                       attachment_type=carla.AttachmentType.SpringArm,
+                                       color_converter=carla.ColorConverter.Raw,
+                                       attributes=dict(image_size_x=200, image_size_y=150)))
 
     # TODO: add a loading map functionality (specified or at random) - load_map
     # TODO: add debug flag(s)
@@ -312,10 +323,12 @@ class SynchronousCARLAEnvironment(Environment):
         self.clock = pygame.time.Clock()
 
         if self.visualize:
+            self.window_size = window_size
+            self.font = env_utils.get_font()
             self.display = env_utils.get_display(window_size)
 
         if self.debug:
-            self.debug_info = CARLADebugInfo(width=window_size[0], height=window_size[1], environment=self)
+            self.debug_info = CARLADebugInfoSmall(width=window_size[0], height=window_size[1], environment=self)
 
         # variables for reward computation
         self.last_location = None
@@ -383,24 +396,13 @@ class SynchronousCARLAEnvironment(Environment):
         if speed <= speed_limit:
             speed_penalty = 0
         else:
-            speed_penalty = c * (speed_limit - speed)  # a negative number
+            speed_penalty = c * (speed_limit - speed)
 
         return time_cost + collision_penalty + efficiency_term + direction_penalty + speed_penalty
 
+    @profile
     def execute(self, actions):
         self.prev_actions = actions
-
-        # with self.synchronous_context as sync_mode:
-        #     # https://stackoverflow.com/questions/20165492/pygame-window-not-responding-after-a-few-seconds
-        #     pygame.event.get()
-        #     # pygame.event.pump()
-        #     self.clock.tick()
-        #
-        #     image = self._sync_world_step(sync_mode, actions)
-        #
-        #     # TODO: handle num_collision properly, i.e. differentiate between collision type
-        #     terminal = (self.num_collisions > 0) or (self.route.distance_to_destination() <= 10)
-        #     next_state = self._get_observation(image)
 
         # https://stackoverflow.com/questions/20165492/pygame-window-not-responding-after-a-few-seconds
         pygame.event.get()
@@ -454,8 +456,7 @@ class SynchronousCARLAEnvironment(Environment):
         self.destination: carla.Location = env_utils.random_spawn_point(self.map,
                                                                         different_from=spawn_point.location).location
         # plan path
-        self.route.plan(origin=self.spawn_point.location,
-                        destination=self.destination)
+        self.route.plan(origin=self.spawn_point.location, destination=self.destination)
 
         # reset reward variables
         self.travelled_distance = 0.0
@@ -463,19 +464,18 @@ class SynchronousCARLAEnvironment(Environment):
 
         # TODO: reset sensors?
 
-    def _sync_world_step(self, sync_mode, actions):
+    @profile
+    def _sync_world_step(self, sync_mode: CARLASyncContext, actions):
         # [pre-tick updates] Apply control to update the vehicle
         self._actions_to_control(actions)
         self.vehicle.apply_control(self.control)
 
-        self.route.draw_route(self.debug_helper, life_time=1.0)
-        self.route.draw_closest_waypoint(self.debug_helper, self.vehicle.get_location(), life_time=1.0)
+        # self.route.draw_route(self.debug_helper, life_time=1.0)
+        # self.route.draw_closest_waypoint(self.debug_helper, self.vehicle.get_location(), life_time=1.0)
 
         # Advance the simulation and wait for the data.
         data = sync_mode.tick(timeout=2.0)
-        image_rgb = self.sensors['sensor.camera.rgb'].convert_image(data['sensor.camera.rgb'])
-
-        # TODO: allow custom sensor name and multiple sensor of the same name (type)
+        image = self.sensors['camera'].convert_image(data['camera'])
 
         # [post-tick updates] Update world-related stuff
         self.route.update_closest_waypoint(location=self.vehicle.get_location())
@@ -483,19 +483,30 @@ class SynchronousCARLAEnvironment(Environment):
 
         # Draw the display
         if self.visualize:
-            # self.route.draw_route(self.debug_helper, life_time=1 / self.fps * 3)
-            # self.route.draw_closest_waypoint(self.debug_helper, self.vehicle.get_location(), life_time=1 / self.fps)
+            if (image.shape[1], image.shape[0]) != self.window_size:
+                image = env_utils.resize(image, size=self.window_size)
 
-            env_utils.display_image(self.display, image_rgb)
+            env_utils.display_image(self.display, image)
 
-            if self.debug:
-                self.debug_info.on_world_tick(snapshot=data['world'])
-                self.debug_info.tick(self.clock)
-                self.debug_info.render(self.display)
+            # TODO: debug stuff are too slow, more than 0.1ms!!!
+            # if self.debug:
+            #     self.debug_info.on_world_tick(snapshot=data['world'])
+            #     self.debug_info.tick(self.clock)
+            #     self.debug_info.render(self.display)
 
+            env_utils.display_text(self.display, self.font,
+                                   text=['%d FPS' % self.clock.get_fps(),
+                                         '',
+                                         'Throttle: %.2f' % self.control.throttle,
+                                         'Steer: %.2f' % self.control.steer,
+                                         'Brake: %.2f' % self.control.brake,
+                                         'Reverse: %s' % ('T' if self.control.reverse else 'F'),
+                                         'Hand brake: %s' % ('T' if self.control.hand_brake else 'F'),
+                                         'Gear: %s' % {-1: 'R', 0: 'N'}.get(self.control.gear)],
+                                   origin=(16, 12), offset=(0, 16))
             pygame.display.flip()
 
-        return image_rgb
+        return image
 
     def _update_travelled_distance(self):
         location1 = self.last_location
@@ -505,11 +516,21 @@ class SynchronousCARLAEnvironment(Environment):
         self.last_location = location2
 
     def _actions_to_control(self, actions):
-        self.control.throttle = float((actions[1] + 1) / 2.0)
         self.control.steer = float(actions[2])
-        self.control.brake = float((actions[3] + 1) / 2.0)
-        self.control.reverse = bool(actions[4] > 0)
-        self.control.hand_brake = bool(actions[5] > 0)
+
+        # throttle and brake are mutual exclusive:
+        self.control.throttle = float(actions[1]) if actions[1] > 0 else 0.0
+        self.control.brake = float(-actions[1]) if actions[1] < 0 else 0.0
+
+        # reverse could be enabled only if throttle > 0
+        if self.control.throttle > 0:
+            self.control.reverse = bool(actions[4] > 0)
+        else:
+            self.control.reverse = False
+
+        # hand-brake active only if throttle > 0 and reverse is False
+        if self.control.throttle > 0 and self.control.reverse:
+            self.control.hand_brake = bool(actions[5] > 0)
 
     def get_skill_name(self):
         skill = env_utils.scale(self.prev_actions[0])
@@ -583,7 +604,10 @@ class SynchronousCARLAEnvironment(Environment):
         if image is None:
             image = np.zeros(shape=self.image_shape, dtype=np.uint8)
 
-        return dict(image=env_utils.resize(image, size=self.image_size),
+        if image.shape != self.image_shape:
+            image = env_utils.resize(image, size=self.image_size)
+
+        return dict(image=image,
                     vehicle_features=self._get_vehicle_features(),
                     road_features=self._get_road_features(),
                     previous_actions=self.prev_actions)
@@ -592,7 +616,7 @@ class SynchronousCARLAEnvironment(Environment):
         """Returns a dict(speed, position, destination, compass) representing the vehicle location state"""
         t = self.vehicle.get_transform()
 
-        imu_sensor = self.sensors['sensor.other.imu']
+        imu_sensor = self.sensors['imu']
         gyroscope = imu_sensor.gyroscope
         accelerometer = imu_sensor.accelerometer
 
@@ -644,22 +668,23 @@ class SynchronousCARLAEnvironment(Environment):
                 WAYPOINT_DICT['lane_marking_type'][waypoint.right_lane_marking.type]]
 
     def _create_sensors(self):
-        for key, kwargs in self.sensors_spec.items():
-            sensor_name = key.lower()
+        for name, kwargs in self.sensors_spec.items():
+            sensor_type = kwargs.pop('type')
 
-            # TODO: se kwargs (cioè il dict) ha come chiavi tutti i parametri necessari per differenziare i vari
-            #  sensori allora sarà possibile usare il metodo Sensor.create(sensor_name, **kwargs) per create tutti i
-            #  sensori in una sola riga.
-            if sensor_name == 'collision_detector':
+            if sensor_type == 'sensor.other.collision':
                 sensor = CollisionSensor(parent_actor=self.vehicle,
                                          hud=self.debug_info,
                                          callback=lambda _: print('collision'))
-            elif sensor_name == 'imu':
+
+            elif sensor_type == 'sensor.other.imu':
                 sensor = IMUSensor(parent_actor=self.vehicle)
 
-            elif sensor_name in ['camera.rgb', 'rgb_camera']:
+            elif sensor_type == 'sensor.camera.rgb':
                 sensor = RGBCameraSensor(parent_actor=self.vehicle, **kwargs)
             else:
-                raise ValueError(f'Cannot create sensor `{sensor_name}`.')
+                raise ValueError(f'Cannot create sensor `{sensor_type}`.')
 
-            self.sensors[sensor.name] = sensor
+            if name == 'world':
+                raise ValueError(f'Cannot name a sensor `world` because is reserved.')
+
+            self.sensors[name] = sensor

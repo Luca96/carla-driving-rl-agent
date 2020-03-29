@@ -9,6 +9,8 @@
 import carla
 import queue
 
+from worlds.debug import profile
+
 
 class CARLASyncContext(object):
     """
@@ -47,12 +49,20 @@ class CARLASyncContext(object):
 
         return self
 
+    @profile
     def tick(self, timeout):
         self.frame = self.world.tick()
 
         data = dict()
         for name, q in self._queues.items():
-            data[name] = self._retrieve_data(q, timeout)
+            print(f'[{self.frame}]', name, q.qsize())
+
+            if name != 'world' and self.sensors[name].is_detector:
+                # Detectors retrieve data only when triggered so have to not wait
+                data[name] = self._get_detector_data(q)
+            else:
+                # Cameras + other are sensors that retrieve data at every simulation step
+                data[name] = self._get_sensor_data(q, timeout)
 
         return data
 
@@ -68,10 +78,21 @@ class CARLASyncContext(object):
         register_event(q.put)
         self._queues[name] = q
 
-    def _retrieve_data(self, sensor_queue, timeout):
+    def _get_detector_data(self, sensor_queue: queue.Queue):
+        """Retrieves data for detector, the call is non-blocking and does not wait for available data."""
+        data = []
+
+        while not sensor_queue.empty():
+            data.append(sensor_queue.get_nowait())
+
+        return data
+
+    @profile
+    def _get_sensor_data(self, sensor_queue: queue.Queue, timeout: float):
+        """Retrieves data for sensors (i.e. camera and other) it blocks waiting until timeout is expired."""
         while True:
             data = sensor_queue.get(timeout=timeout)
-
+            print('-', data.frame, 1 + sensor_queue.qsize())
             # TODO: sensors that don't tick at each timestep should be handled properly to avoid exceptions
             if data.frame == self.frame:
                 return data

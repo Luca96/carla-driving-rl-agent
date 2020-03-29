@@ -3,7 +3,23 @@ import time
 
 import carla
 
+from functools import wraps
 from worlds.utils import Colors, vector_norm
+
+
+def profile(fn):
+    @wraps(fn)
+    def with_profiling(*args, **kwargs):
+        start_time = time.time()
+        ret = fn(*args, **kwargs)
+
+        elapsed_time = time.time() - start_time
+        # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
+        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+
+        return ret
+
+    return with_profiling
 
 
 # -------------------------------------------------------------------------------------------------

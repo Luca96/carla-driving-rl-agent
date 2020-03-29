@@ -2,12 +2,15 @@
 
 import os
 import cv2
+import time
 import random
 import numpy as np
 import carla
 import pygame
 import tensorflow as tf
 
+from functools import wraps
+from enum import Enum
 from typing import Union
 
 
@@ -28,6 +31,22 @@ from typing import Union
 #                                  outputs=pool2d.output,
 #                                  name=f'{backend}-ImageCompressor')
 
+# source: https://stackoverflow.com/questions/3620943/measuring-elapsed-time-with-the-time-module/46544199
+def profile(fn):
+    @wraps(fn)
+    def with_profiling(*args, **kwargs):
+        start_time = time.time()
+        ret = fn(*args, **kwargs)
+
+        elapsed_time = time.time() - start_time
+        # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
+        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+
+        return ret
+
+    return with_profiling
+
+
 def get_client(address, port, timeout=2.0) -> carla.Client:
     """Connects to the simulator.
         @:returns a carla.Client instance if the CARLA simulator accepts the connection.
@@ -46,6 +65,10 @@ def get_display(window_size, mode=pygame.HWSURFACE | pygame.DOUBLEBUF):
     return pygame.display.set_mode(window_size, mode)
 
 
+def get_font(size=14):
+    return pygame.font.Font(pygame.font.get_default_font(), size)
+
+
 def display_image(display, image):
     """Displays the given image on a pygame window
     :param display: pygame.display
@@ -53,6 +76,14 @@ def display_image(display, image):
     """
     image_surface = pygame.surfarray.make_surface(image.swapaxes(0, 1))
     display.blit(image_surface, (0, 0))
+
+
+def display_text(display, font, text: [str], color=(255, 255, 255), origin=(0, 0), offset=(0, 2)):
+    position = origin
+
+    for line in text:
+        display.blit(font.render(line, True, color), position)
+        position = (position[0] + offset[0], position[1] + offset[1])
 
 
 def random_blueprint(world: carla.World, actor_filter='vehicle.*', role_name='agent') -> carla.ActorBlueprint:
@@ -143,3 +174,17 @@ def scale(num, from_interval=(-1.0, +1.0), to_interval=(0.0, 7.0)) -> float:
     """
     x = np.interp(num, from_interval, to_interval)
     return float(round(x))
+
+
+class Profiler(object):
+    """Measures elapsed time."""
+    def __init__(self, block: str):
+        self.t0 = 0.0
+        self.name = block
+
+    def __enter__(self):
+        self.t0 = time.time()
+
+    def __exit__(self):
+        elapsed_time = time.time() - self.t0
+        print(f'Code <{self.name}> takes {round(elapsed_time / 1000.0, 2)}ms.')
