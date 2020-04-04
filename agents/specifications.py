@@ -1,4 +1,7 @@
 """A list of classes that wraps specifications dict for the ease of defining TensorforceAgents agents"""
+from tensorforce import Agent
+
+from agents.learn import SynchronousCARLAEnvironment
 
 
 class Objectives:
@@ -97,7 +100,7 @@ class Networks:
 
     @staticmethod
     def convolutional(inputs: [str] = None, output: str = None, initial_filters=32, kernel=(3, 3), pool='max',
-                      activation='relu', stride=1, dilation=1, dropout=0.0, layers=2, normalization='instance'):
+                      activation='relu', stride=1, dropout=0.0, layers=2, normalization='instance'):
         network = []
 
         if inputs is not None:
@@ -112,19 +115,13 @@ class Networks:
         for i in range(1, layers + 1):
             filters = initial_filters * i
 
-            if stride > 1:
-                convolution = dict(type='conv2d', size=filters, window=kernel, stride=stride, activation=activation,
-                                   dropout=dropout)
-            else:
-                convolution = dict(type='conv2d', size=filters, window=kernel, dilation=dilation, activation=activation,
-                                   dropout=dropout)
+            network.append(dict(type='conv2d', size=filters, window=kernel, stride=stride, activation=activation,
+                                dropout=dropout))
 
-            network.append(convolution)
-
-            if normalization == 'instance':
-                network.append(dict(type='instance_normalization'))
-            elif normalization == 'exponential' or normalization == 'exp':
-                network.append(dict(type='exponential_normalization'))
+            # if normalization == 'instance':
+            #     network.append(dict(type='instance_normalization'))
+            # elif normalization == 'exponential' or normalization == 'exp':
+            #     network.append(dict(type='exponential_normalization'))
 
             if pool is not None:
                 network.append(dict(type='pool2d', reduction=pool))
@@ -150,10 +147,10 @@ class Networks:
         for i in range(layers):
             network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
 
-            if normalization == 'instance':
-                network.append(dict(type='instance_normalization'))
-            elif normalization == 'exponential' or normalization == 'exp':
-                network.append(dict(type='exponential_normalization'))
+            # if normalization == 'instance':
+            #     network.append(dict(type='instance_normalization'))
+            # elif normalization == 'exponential' or normalization == 'exp':
+            #     network.append(dict(type='exponential_normalization'))
 
         if output is not None:
             network.append(dict(type='register', tensor=output))
@@ -161,7 +158,8 @@ class Networks:
         return network
 
     @staticmethod
-    def complex(networks: [[dict]], layers=2, units=64, activation='relu', dropout=0.0, aggregation='concat'):
+    def complex(networks: [[dict]], layers=2, units=64, activation='relu', dropout=0.0, aggregation='concat',
+                rnn: dict = None):
         network = networks
         outputs = []
 
@@ -177,6 +175,11 @@ class Networks:
 
         for i in range(layers):
             network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
+
+        if rnn and rnn.get('length', 0) > 0:
+            network.append(dict(type='internal_rnn', cell=rnn.get('cell', 'lstm'), size=rnn.get('units, 128'),
+                                length=rnn.get('length'), bias=True, activation=rnn.get('activation', 'none'),
+                                dropout=dropout))
 
         return network
 
@@ -222,23 +225,29 @@ class Specifications:
                     temperature=temperature)
 
     @staticmethod
-    def agent_network():
-        # TODO: embedd actions, and features before dense layers??
-        # TODO: add RNN
-        # TODO: image-ratio preserving convolutional kernels, e.g. (3, 2) or (2, 3) instead of (3, 3)
+    def agent_network(conv: dict, rnn: dict = None, final: dict = None, dropout=0.2):
         # TODO: image stack 4-images (i.e. concat depth)?? or stack last-4 states and actions?
+        final = final or dict()
 
         return Networks.complex(networks=[
-            Networks.convolutional(inputs='image', layers=5-2, stride=2, pool=None, dropout=0.2,
+            Networks.convolutional(inputs='image',
+                                   layers=conv.get('layers', 4),
+                                   stride=conv.get('stride', 2),
+                                   initial_filters=conv.get('filters', 32),
+                                   pool=conv.get('pooling', None),
+                                   dropout=dropout,
                                    output='image_out'),
-            Networks.dense(inputs='vehicle_features', layers=2, units=32, dropout=0.2,
+            Networks.dense(inputs='vehicle_features', layers=2, units=32, dropout=dropout,
                            output='vehicle_out'),
-            Networks.dense(inputs='road_features', layers=2, units=24, dropout=0.2,
+            Networks.dense(inputs='road_features', layers=2, units=24, dropout=dropout,
                            output='road_out'),
-            Networks.dense(inputs='previous_actions', layers=2, units=16, dropout=0.2,
+            Networks.dense(inputs='previous_actions', layers=2, units=16, dropout=dropout,
                            output='actions_out')],
-            layers=2,
-            units=256)
+
+            layers=final.get('layers', 2),
+            activation=final.get('activation', 'none'),
+            rnn=rnn,
+            units=final.get('units', 256))
 
     @staticmethod
     def agent_light_network():
@@ -255,5 +264,38 @@ class Specifications:
         raise NotImplementedError
 
     @staticmethod
-    def summarizer():
-        raise NotImplementedError
+    def summarizer(directory='data/summaries', labels=None, frequency=100):
+        return dict(directory=directory,
+                    labels=labels or ['graph', 'entropy', 'kl-divergence', 'losses', 'rewards'],
+                    frequency=frequency)
+
+    @staticmethod
+    def carla_agent(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict, critic: dict,
+                    discount=1.0, horizon=100, batch_size=256, update_frequency=64, **kwargs):
+        return Agent.create(agent='tensorforce',
+                            environment=environment,
+                            max_episode_timesteps=max_episode_timesteps,
+
+                            update=Specifications.update(unit='timesteps', batch_size=batch_size,
+                                                         frequency=update_frequency),
+                            # Policy
+                            policy=Specifications.policy(network=policy['network'],
+                                                         temperature=policy.get('temperature', 1.0),
+                                                         infer_states_value=True),
+                            memory=dict(type='recent'),
+                            optimizer=policy.get('optimizer', dict(type='adam', learning_rate=3e-4)),
+                            objective=Specifications.obj.policy_gradient(clipping_value=0.2, early_reduce=True),
+
+                            # Critic
+                            baseline_policy=Specifications.policy(distributions='gaussian',
+                                                                  network=critic['network'],
+                                                                  temperature=critic.get('temperature', 1.0)),
+                            baseline_optimizer=critic.get('optimizer', dict(type='adam', learning_rate=3e-4)),
+                            baseline_objective=Specifications.obj.value(value='state', huber_loss=0.1, early_reduce=True),
+
+                            # Reward
+                            reward_estimation=dict(discount=discount,
+                                                   horizon=horizon,
+                                                   estimate_horizon='early',
+                                                   estimate_advantage=True),
+                            **kwargs)

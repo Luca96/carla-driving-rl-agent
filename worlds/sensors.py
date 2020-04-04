@@ -6,8 +6,8 @@ import numpy as np
 import carla
 import time
 
-from worlds import utils
 from functools import wraps
+from worlds import utils
 
 # TODO: add support for other sensors: lidar, radar, depth camera etc.
 
@@ -20,7 +20,7 @@ def profile(fn):
 
         elapsed_time = time.time() - start_time
         # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
-        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+        # print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
 
         return ret
 
@@ -143,6 +143,12 @@ class RGBCameraSensor(CameraSensor):
     @property
     def name(self):
         return 'sensor.camera.rgb'
+
+
+class DepthCameraSensor(CameraSensor):
+    @property
+    def name(self):
+        return 'sensor.camera.depth'
 
 
 class SemanticCameraSensor(CameraSensor):
@@ -288,58 +294,91 @@ class IMUSensor(Sensor):
 
 
 # -------------------------------------------------------------------------------------------------
-# -- Camera Sensor(s) Wrapper
+# -- Sensors specifications
 # -------------------------------------------------------------------------------------------------
-#
-# class CameraSensor(object):
-#     """Wraps a single camera sensor for ease of use within a CameraManager"""
-#     # TODO: use logger insted of print for warning statement
-#
-#     def __init__(self, kind: str, name: str, color_converter=carla.ColorConverter.Raw):
-#         """@:arg kind: one of 'rgb', 'depth', 'semantic_segmentation'."""
-#         # TODO: add LIDAR and RADAR support?
-#         self.kind = kind
-#         self.name = name
-#         self.color_converter = color_converter
-#         self.blueprint = None
-#         self.callback = None
-#         self.actor = None
-#
-#     def load_blueprint(self, blueprint_library):
-#         """Uses the blueprint_library to find itself according to self.kind"""
-#         self.blueprint = blueprint_library.find('sensor.camera.' + self.kind)
-#
-#     def spawn_actor(self, world: carla.World, transform: carla.Transform, attach_to: carla.Actor, attachment_type: carla.AttachmentType):
-#         """Spawns itself within a carla.World."""
-#         if self.blueprint is None:
-#             raise ValueError('Blueprint is None, call "load_blueprint()" before "spawn_actor"!')
-#
-#         if self.actor is not None:
-#             print('[Warning] CameraSensor.spawn_actor: actor not None, destroying it before been spawn!')
-#             self.actor.destroy()
-#
-#         self.actor = world.spawn_actor(self.blueprint, transform, attach_to, attachment_type)
-#
-#     def set_attributes(self, **kwargs):
-#         for key, value in kwargs.items():
-#             if self.blueprint.has_attribute(key):
-#                 self.blueprint.set_attribute(key, value)
-#             else:
-#                 print(f'[Warning] CameraSensor.set_attributes: attribute "{key}" is not available for ' +
-#                       f'sensor {self.kind}!')
-#
-#     def listen(self, callback):
-#         pass
-#
-#     def destroy(self):
-#         if self.actor is not None:
-#             self.actor.destroy()
-#             self.actor = None
-#
-#         self.blueprint = None
-#         self.callback = None
-#
-#
-# class CombinedCameraSensor(CameraSensor):
-#     """Wraps multiple sensors as a single one."""
-#     pass
+
+class SensorSpecs(object):
+    ATTACHMENT_TYPE = {'SpringArm': carla.AttachmentType.SpringArm,
+                       'Rigid': carla.AttachmentType.Rigid,
+                       None: carla.AttachmentType.Rigid}
+
+    COLOR_CONVERTER = {'Raw': carla.ColorConverter.Raw,
+                       'CityScapesPalette': carla.ColorConverter.CityScapesPalette,
+                       'Depth': carla.ColorConverter.Depth,
+                       'LogarithmicDepth': carla.ColorConverter.LogarithmicDepth,
+                       None: carla.ColorConverter.Raw}
+
+    @staticmethod
+    def _get_position(position: str = None) -> carla.Transform:
+        if position == 'top':
+            return carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0))
+        elif position == 'top-view':
+            return carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0))
+        elif position == 'front':
+            return carla.Transform(carla.Location(x=1.6, z=1.7))
+        elif position == 'on-top':
+            return carla.Transform(carla.Location(x=1.6 - 5.0 + 2.5, y=0.0, z=2.2))
+        else:
+            return carla.Transform()
+
+    @staticmethod
+    def camera(kind: str, transform: carla.Transform = None, position: str = None, attachment_type=None,
+               color_converter=None, **kwargs) -> dict:
+        assert kind in ['rgb', 'depth', 'semantic_segmentation']
+        return dict(type='sensor.camera.' + kind,
+                    transform=transform or SensorSpecs._get_position(position),
+                    attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
+                    color_converter=SensorSpecs.COLOR_CONVERTER[color_converter],
+                    attributes=kwargs)
+
+    @staticmethod
+    def rgb_camera(transform: carla.Transform = None, position: str = None, attachment_type='SpringArm',
+                   color_converter='Raw', **kwargs):
+        return SensorSpecs.camera('rgb', transform, position, attachment_type, color_converter, **kwargs)
+
+    @staticmethod
+    def depth_camera(transform: carla.Transform = None, position: str = None, attachment_type='SpringArm',
+                     color_converter='LogarithmicDepth', **kwargs):
+        return SensorSpecs.camera('depth', transform, position, attachment_type, color_converter, **kwargs)
+
+    @staticmethod
+    def segmentation_camera(transform: carla.Transform = None, position: str = None, attachment_type='SpringArm',
+                            color_converter='CityScapesPalette', **kwargs):
+        return SensorSpecs.camera('semantic_segmentation', transform, position, attachment_type, color_converter, **kwargs)
+
+    @staticmethod
+    def detector(kind: str, transform: carla.Transform = None, position: str = None, attachment_type=None,
+                 **kwargs) -> dict:
+        assert kind in ['collision', 'lane', 'obstacle']
+        return dict(type='sensor.other.' + kind,
+                    transform=transform or SensorSpecs._get_position(position),
+                    attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
+                    attributes=kwargs)
+
+    @staticmethod
+    def collision_detector(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
+        return SensorSpecs.detector('collision', transform, position, attachment_type, **kwargs)
+
+    @staticmethod
+    def lane_detector(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
+        return SensorSpecs.detector('lane', transform, position, attachment_type, **kwargs)
+
+    @staticmethod
+    def obstacle_detector(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
+        return SensorSpecs.detector('obstacle', transform, position, attachment_type, **kwargs)
+
+    @staticmethod
+    def other(kind: str, transform: carla.Transform = None, position: str = None, attachment_type=None, **kwargs) -> dict:
+        assert kind in ['imu', 'gnss']  # TODO: add 'lidar' and 'radar'
+        return dict(type='sensor.other.' + kind,
+                    transform=transform or SensorSpecs._get_position(position),
+                    attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
+                    attributes=kwargs)
+
+    @staticmethod
+    def imu(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
+        return SensorSpecs.other('imu', transform, position, attachment_type, **kwargs)
+
+    @staticmethod
+    def gnss(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
+        return SensorSpecs.other('imu', transform, position, attachment_type, **kwargs)

@@ -55,7 +55,7 @@ class CARLASyncContext(object):
 
         data = dict()
         for name, q in self._queues.items():
-            print(f'[{self.frame}]', name, q.qsize())
+            # print(f'[{self.frame}]', name, q.qsize())
 
             if name != 'world' and self.sensors[name].is_detector:
                 # Detectors retrieve data only when triggered so have to not wait
@@ -92,7 +92,7 @@ class CARLASyncContext(object):
         """Retrieves data for sensors (i.e. camera and other) it blocks waiting until timeout is expired."""
         while True:
             data = sensor_queue.get(timeout=timeout)
-            print('-', data.frame, 1 + sensor_queue.qsize())
-            # TODO: sensors that don't tick at each timestep should be handled properly to avoid exceptions
+            # print('-', data.frame, 1 + sensor_queue.qsize())
+
             if data.frame == self.frame:
                 return data

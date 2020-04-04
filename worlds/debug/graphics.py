@@ -229,7 +229,7 @@ class CARLADebugInfo(DebugInfo):
         route: Route = env.route
         imu_sensor: IMUSensor = env.sensors['sensor.other.imu']
 
-        t = vehicle.get_transform()
+        t = vehicle._get_transform()
         c = vehicle.get_control()
 
         compass = imu_sensor.compass
@@ -245,7 +245,7 @@ class CARLADebugInfo(DebugInfo):
         collision = [x / max_col for x in collision]
         vehicles = world.get_actors().filter('vehicle.*')
 
-        similarity = utils.cosine_similarity(vehicle.get_transform().get_forward_vector(),
+        similarity = utils.cosine_similarity(vehicle._get_transform().get_forward_vector(),
                                              route.closest_path.waypoint.transform.get_forward_vector())
 
         self._info_text += [
@@ -296,8 +296,6 @@ class CARLADebugInfo(DebugInfo):
 class CARLADebugInfoSmall(DebugInfo):
     """Provides debugging facilities for SynchronousCARLAEnvironment"""
     def __init__(self, width: int, height: int, environment, **kwargs):
-        # TODO: ugly check: cannot import class due to circular reference :(
-        assert environment.__class__.__name__ == 'SynchronousCARLAEnvironment'
         super().__init__(width, height, **kwargs)
         self.environment = environment
 

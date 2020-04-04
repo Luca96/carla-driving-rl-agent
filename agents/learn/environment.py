@@ -2,13 +2,14 @@
 
 import cv2
 import pygame
+import datetime
 
 from tensorforce.environments import Environment
 
 from agents.learn import env_utils
-from agents.learn.env_utils import Profiler, profile
+from agents.learn.env_utils import profile
 
-from worlds import World, Route, RoutePlanner, WAYPOINT_DICT
+from worlds import World, Route, RoutePlanner, WAYPOINT_DICT, utils
 from worlds.sensors import *
 from worlds.debug.graphics import HUD, CARLADebugInfo, CARLADebugInfoSmall
 from worlds.tools import misc
@@ -255,22 +256,11 @@ class SynchronousCARLAEnvironment(Environment):
     LAW_NORMS_SPEC = dict(type='float', shape=(3,))
 
     # default sensors specification
-    # TODO: sensor class specification to shorten the definition of sensors? At least for cameras=
-    # DEFAULT_SENSORS = dict(imu=True,
-    #                        # collision_detector=True,
-    #                        rgb_camera=dict(transform=carla.Transform(carla.Location(x=-5.5, z=2.5),
-    #                                                                  carla.Rotation(pitch=8.0)),
-    #                                        attachment_type=carla.AttachmentType.SpringArm,
-    #                                        color_converter=carla.ColorConverter.Raw,
-    #                                        attributes=dict(image_size_x=200, image_size_y=150)))
-    DEFAULT_SENSORS = dict(imu=dict(type='sensor.other.imu'),
-                           collision=dict(type='sensor.other.collision'),
-                           camera=dict(type='sensor.camera.rgb',
-                                       transform=carla.Transform(carla.Location(x=-5.5, z=2.5),
-                                                                 carla.Rotation(pitch=8.0)),
-                                       attachment_type=carla.AttachmentType.SpringArm,
-                                       color_converter=carla.ColorConverter.Raw,
-                                       attributes=dict(image_size_x=200, image_size_y=150)))
+    # TODO: sensor class specification to shorten the definition of sensors? At least for cameras
+    DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
+                           collision=SensorSpecs.collision_detector(),
+                           camera=SensorSpecs.rgb_camera(position='top',
+                                                         image_size_x=200, image_size_y=150))
 
     # TODO: add a loading map functionality (specified or at random) - load_map
     # TODO: add debug flag(s)
@@ -324,7 +314,7 @@ class SynchronousCARLAEnvironment(Environment):
 
         if self.visualize:
             self.window_size = window_size
-            self.font = env_utils.get_font()
+            self.font = env_utils.get_font(size=13)
             self.display = env_utils.get_display(window_size)
 
         if self.debug:
@@ -333,7 +323,9 @@ class SynchronousCARLAEnvironment(Environment):
         # variables for reward computation
         self.last_location = None
         self.travelled_distance = 0.0
-        self.num_collisions = 0
+        self.should_terminate = False
+        self.collision_penalty = 0.0
+        self.similarity = 0.0
 
         # event callbacks
         # TODO: add more callbacks/events if necessary
@@ -341,6 +333,8 @@ class SynchronousCARLAEnvironment(Environment):
 
     def states(self):
         # TODO: also consider previous vehicle control?
+        # TODO: when stacking feature vectors, reshape them into a 2D matrix so that convolutions can be applied!!
+        # TODO: consider to include past (more than one) skills, but one-hot encoded!
         return dict(image=dict(shape=self.image_shape),
                     vehicle_features=self.VEHICLE_FEATURES_SPEC,
                     road_features=self.ROAD_FEATURES_SPEC,
@@ -360,45 +354,52 @@ class SynchronousCARLAEnvironment(Environment):
         return self._get_observation(image=None)
 
     # TODO: provide support for custom reward functions
-    def reward(self, time_cost=-1.0, b=-1000.0, c=2.0, d=2.0):
+    def reward(self, actions, time_cost=-1.0, b=-1000.0, c=2.0, d=2.0):
         """Agent's reward function"""
         # TODO: include a penalty for law compliance: exceeding the speed limit, red traffic light...
-
-        # Collision term (n. of collision between two tick): do as few collision as possible
-        collision_penalty = b * self.num_collisions
 
         # Direction term: alignment of the vehicle's heading direction with the waypoint's forward vector
         closest_waypoint = self.route.closest_path.waypoint
         similarity = utils.cosine_similarity(self.vehicle.get_transform().get_forward_vector(),  # heading direction
                                              closest_waypoint.transform.get_forward_vector())
         speed = utils.speed(self.vehicle)
+        self.similarity = similarity
 
-        if similarity > 0:
+        # if similarity > 0:
+        #     direction_penalty = (speed + 1) * similarity  # speed + 1, to avoid 0 speed
+        # else:
+        #     direction_penalty = (speed + 1) * similarity * d
+
+        if 0.6 <= similarity <= 1.0:
             direction_penalty = (speed + 1) * similarity  # speed + 1, to avoid 0 speed
         else:
-            direction_penalty = (speed + 1) * similarity * d
-
-        if speed < 10:
-            direction_penalty -= 1
+            direction_penalty = (speed + 1) * abs(similarity) * -d
 
         if self.travelled_distance <= self.route.size:
-            efficiency_term = 0
+            efficiency_term = 0.0
         else:
             efficiency_term = -(self.travelled_distance - self.route.size) - self.route.distance_to_destination()
 
             # travelled more than route size, zero direction_penalty if positive
-            if direction_penalty > 0:
-                direction_penalty = 0
+            if direction_penalty > 0.0:
+                direction_penalty = 0.0
 
         # Speed-limit compliance:
         speed_limit = self.vehicle.get_speed_limit()
 
         if speed <= speed_limit:
-            speed_penalty = 0
+            speed_penalty = 0.0 if speed > 10.0 else -1.0
         else:
             speed_penalty = c * (speed_limit - speed)
 
-        return time_cost + collision_penalty + efficiency_term + direction_penalty + speed_penalty
+        reward = time_cost - self.collision_penalty + efficiency_term + direction_penalty + speed_penalty
+
+        # Action penalty: penalise actions according to current skill (i.e. actions[0])
+        action_penalty = self._action_penalty(actions)
+        if action_penalty > 0.0:
+            reward = -abs(reward) - action_penalty
+
+        return reward
 
     @profile
     def execute(self, actions):
@@ -412,17 +413,16 @@ class SynchronousCARLAEnvironment(Environment):
         image = self._sync_world_step(self.synchronous_context, actions)
 
         # TODO: handle num_collision properly, i.e. differentiate between collision type
-        reward = self.reward()
-        terminal = (self.num_collisions > 0) or (self.route.distance_to_destination() <= 10)
+        reward = self.reward(actions)
+        terminal = self.should_terminate or (self.route.distance_to_destination() <= 10)
         next_state = self._get_observation(image)
 
-        # Action penalty: penalise actions according to current skill (i.e. actions[0])
-        action_penalty = self._action_penalty(actions)
-        if action_penalty > 0:
-            reward = -abs(reward) - action_penalty
+        # if terminal:
+        #     reward -= self.route.distance_to_destination()
 
         # Reset collision count
-        self.num_collisions = 0
+        self.collision_penalty = 0.0
+        self.should_terminate = False
 
         return next_state, terminal, reward
 
@@ -435,6 +435,26 @@ class SynchronousCARLAEnvironment(Environment):
 
         for sensor in self.sensors.values():
             sensor.destroy()
+
+    def add_callback(self, sensor_name: str, callback):
+        self.sensors[sensor_name].add_callback(callback)
+
+    def on_collision(self, event: carla.CollisionEvent, penalty=1000.0, max_impulse=400.0):
+        impulse = math.sqrt(utils.vector_norm(event.normal_impulse))
+        actor_type = event.other_actor.type_id
+        print(f'Collision(impulse={round(impulse, 2)}, actor={actor_type})')
+
+        if 'pedestrian' in actor_type:
+            self.collision_penalty += max(penalty * impulse, penalty)
+            self.should_terminate = True
+        elif 'vehicle' in actor_type:
+            # self.collision_penalty += penalty / 2 * impulse
+            self.collision_penalty += max(penalty / 2 * impulse, penalty)
+            self.should_terminate = True
+        else:
+            # self.collision_penalty += penalty / 10 * min(impulse, max_impulse)
+            self.collision_penalty += min(impulse, max_impulse)
+            self.should_terminate = False
 
     def _reset_world(self):
         print('env.reset_world')
@@ -460,7 +480,8 @@ class SynchronousCARLAEnvironment(Environment):
 
         # reset reward variables
         self.travelled_distance = 0.0
-        self.num_collisions = 0
+        self.collision_penalty = 0.0
+        self.should_terminate = False
 
         # TODO: reset sensors?
 
@@ -477,16 +498,20 @@ class SynchronousCARLAEnvironment(Environment):
         data = sync_mode.tick(timeout=2.0)
         image = self.sensors['camera'].convert_image(data['camera'])
 
+        # data['camera'].save_to_disk(path='data/images/image-' + str(datetime.datetime.now()),
+        #                             color_converter=self.sensors['camera'].color_converter)
+
         # [post-tick updates] Update world-related stuff
         self.route.update_closest_waypoint(location=self.vehicle.get_location())
         self._update_travelled_distance()
 
         # Draw the display
         if self.visualize:
-            if (image.shape[1], image.shape[0]) != self.window_size:
-                image = env_utils.resize(image, size=self.window_size)
+            env_utils.display_image(self.display, image, window_size=self.window_size)
 
-            env_utils.display_image(self.display, image)
+            if self.sensors.get('sem_camera', False):
+                segmentation = self.sensors['sem_camera'].convert_image(data['sem_camera'])
+                env_utils.display_image(self.display, segmentation, window_size=self.window_size, blend=True)
 
             # TODO: debug stuff are too slow, more than 0.1ms!!!
             # if self.debug:
@@ -494,19 +519,28 @@ class SynchronousCARLAEnvironment(Environment):
             #     self.debug_info.tick(self.clock)
             #     self.debug_info.render(self.display)
 
-            env_utils.display_text(self.display, self.font,
-                                   text=['%d FPS' % self.clock.get_fps(),
-                                         '',
-                                         'Throttle: %.2f' % self.control.throttle,
-                                         'Steer: %.2f' % self.control.steer,
-                                         'Brake: %.2f' % self.control.brake,
-                                         'Reverse: %s' % ('T' if self.control.reverse else 'F'),
-                                         'Hand brake: %s' % ('T' if self.control.hand_brake else 'F'),
-                                         'Gear: %s' % {-1: 'R', 0: 'N'}.get(self.control.gear)],
+            env_utils.display_text(self.display, self.font, text=self._get_debug_text(actions),
                                    origin=(16, 12), offset=(0, 16))
             pygame.display.flip()
 
         return image
+
+    def _get_debug_text(self, actions):
+        return ['%d FPS' % self.clock.get_fps(),
+                '',
+                'Throttle: %.2f' % self.control.throttle,
+                'Steer: %.2f' % self.control.steer,
+                'Brake: %.2f' % self.control.brake,
+                'Reverse: %s' % ('T' if self.control.reverse else 'F'),
+                'Hand brake: %s' % ('T' if self.control.hand_brake else 'F'),
+                'Gear: %s' % {-1: 'R', 0: 'N'}.get(self.control.gear),
+                '',
+                'Similarity %.2f' % self.similarity,
+                '',
+                'Reward: %.2f' % self.reward(actions),
+                'Action penalty: %.2f' % self._action_penalty(actions),
+                'Collision penalty: %.2f' % self.collision_penalty,
+                'Skill: %s' % self.get_skill_name()]
 
     def _update_travelled_distance(self):
         location1 = self.last_location
@@ -674,13 +708,16 @@ class SynchronousCARLAEnvironment(Environment):
             if sensor_type == 'sensor.other.collision':
                 sensor = CollisionSensor(parent_actor=self.vehicle,
                                          hud=self.debug_info,
-                                         callback=lambda _: print('collision'))
+                                         callback=self.on_collision)
 
             elif sensor_type == 'sensor.other.imu':
                 sensor = IMUSensor(parent_actor=self.vehicle)
 
             elif sensor_type == 'sensor.camera.rgb':
                 sensor = RGBCameraSensor(parent_actor=self.vehicle, **kwargs)
+
+            elif sensor_type == 'sensor.camera.semantic_segmentation':
+                sensor = SemanticCameraSensor(parent_actor=self.vehicle, **kwargs)
             else:
                 raise ValueError(f'Cannot create sensor `{sensor_type}`.')
 
@@ -688,3 +725,105 @@ class SynchronousCARLAEnvironment(Environment):
                 raise ValueError(f'Cannot name a sensor `world` because is reserved.')
 
             self.sensors[name] = sensor
+
+
+class CARLAExperiment1(SynchronousCARLAEnvironment):
+    # skill, throttle or brake, steer, reverse
+    ACTIONS_SPEC = dict(type='float', shape=(4,), min_value=-1.0, max_value=1.0)
+    DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0, 0.0])
+
+    DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
+                           collision=SensorSpecs.collision_detector(),
+                           camera=SensorSpecs.rgb_camera(position='front',
+                                                         attachment_type='Rigid',
+                                                         image_size_x=200, image_size_y=150))
+
+    def _actions_to_control(self, actions):
+        self.control.steer = float(actions[2])
+
+        # throttle and brake are mutual exclusive:
+        self.control.throttle = float(actions[1]) if actions[1] > 0 else 0.0
+        self.control.brake = float(-actions[1]) if actions[1] < 0 else 0.0
+
+        # reverse could be enabled only if throttle > 0
+        if self.control.throttle > 0:
+            self.control.reverse = bool(actions[3] > 0)
+        else:
+            self.control.reverse = False
+
+
+class CARLAExperiment2(SynchronousCARLAEnvironment):
+    # skill, throttle/brake intensity, steer
+    ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
+    DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0])
+
+    DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
+                           collision=SensorSpecs.collision_detector(),
+                           camera=SensorSpecs.segmentation_camera(position='front',
+                                                                  attachment_type='Rigid',
+                                                                  image_size_x=200, image_size_y=150))
+
+    # disable action penalty
+    def _action_penalty(self, actions, alpha=1, epsilon=0.01):
+        return 0.0
+
+    def _actions_to_control(self, actions):
+        skill = self.get_skill_name()
+        reverse = self.control.reverse
+
+        if skill == 'brake':
+            throttle = 0.0
+            brake = max(0.1, (actions[1] + 1) / 2.0)
+            steer = float(actions[2])
+        elif skill == 'forward':
+            throttle = max(0.1, (actions[1] + 1) / 2.0)
+            brake = 0.0
+            steer = 0.0
+            reverse = False
+        elif skill == 'forward right':
+            throttle = max(0.1, (actions[1] + 1) / 2.0)
+            brake = 0.0
+            steer = max(0.1, (actions[2] + 1) / 2.0)
+            reverse = False
+        elif skill == 'forward left':
+            throttle = max(0.1, (actions[1] + 1) / 2.0)
+            brake = 0.0
+            steer = min(-0.1, (actions[2] + 1) / -2.0)
+            reverse = False
+        elif skill == 'backward':
+            throttle = max(0.1, (actions[1] + 1) / 2.0)
+            brake = 0.0
+            steer = 0.0
+            reverse = True
+        elif skill == 'backward left':
+            throttle = max(0.1, (actions[1] + 1) / 2.0)
+            brake = 0.0
+            steer = max(0.1, (actions[2] + 1) / 2.0)
+            reverse = True
+        elif skill == 'backward right':
+            throttle = max(0.1, (actions[1] + 1) / 2.0)
+            brake = 0.0
+            steer = min(-0.1, (actions[2] + 1) / -2.0)
+            reverse = False
+        else:
+            # idle/stop
+            throttle = 0.0
+            brake = 0.0
+            steer = 0.0
+            reverse = False
+
+        self.control.throttle = throttle
+        self.control.brake = brake
+        self.control.steer = steer
+        self.control.reverse = reverse
+        self.control.hand_brake = False
+
+
+class CARLAExperiment3(CARLAExperiment2):
+    DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
+                           collision=SensorSpecs.collision_detector(),
+                           camera=SensorSpecs.rgb_camera(position='front',
+                                                         attachment_type='Rigid',
+                                                         image_size_x=200, image_size_y=150,
+                                                         sensor_tick=1.0 / 30))
+

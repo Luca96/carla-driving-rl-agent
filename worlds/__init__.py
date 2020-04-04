@@ -123,7 +123,7 @@ class World(object):
         direction = d * self.route.closest_path.distance
 
         closest_waypoint = self.route.closest_path.waypoint
-        similarity = utils.cosine_similarity(self.player.get_transform().get_forward_vector(),  # heading direction
+        similarity = utils.cosine_similarity(self.player._get_transform().get_forward_vector(),  # heading direction
                                              closest_waypoint.transform.get_forward_vector())
 
         if similarity < 0:

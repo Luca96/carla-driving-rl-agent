@@ -15,7 +15,7 @@ def profile(fn):
 
         elapsed_time = time.time() - start_time
         # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
-        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+        # print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
 
         return ret
 
@@ -74,7 +74,7 @@ def draw_bounding_box(world):
         actor = world.get_actor(actor_snapshot.id)
 
         if actor.type_id == 'traffic.traffic_light':
-            actor_transform = actor_snapshot.get_transform()
+            actor_transform = actor_snapshot._get_transform()
             bounding_box = carla.BoundingBox(actor_transform.location, carla.Vector3D(0.5, 0.5, 2))
             debug.draw_box(bounding_box, actor_transform.rotation, 0.05, Colors.red, 0)
 

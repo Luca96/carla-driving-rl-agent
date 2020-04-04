@@ -97,6 +97,7 @@ class CameraManager(object):
                                                  attach_to=self.parent,
                                                  attachment_type=self._camera_transforms[self.transform_index][1])
             self.sensor.listen(self.on_image)
+            print('camera-transform', self._camera_transforms[self.transform_index][0], self._camera_transforms[self.transform_index][1])
 
         if notify:
             self.hud.notification(self.sensors[index][2])  # sensor display name

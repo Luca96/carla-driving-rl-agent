@@ -7,11 +7,9 @@ import random
 import numpy as np
 import carla
 import pygame
-import tensorflow as tf
+import threading
 
 from functools import wraps
-from enum import Enum
-from typing import Union
 
 
 # def load_nasnet_mobile(folder='weights/keras', weights='nasnet_mobile.h5'):
@@ -40,7 +38,7 @@ def profile(fn):
 
         elapsed_time = time.time() - start_time
         # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
-        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+        # print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
 
         return ret
 
@@ -69,12 +67,22 @@ def get_font(size=14):
     return pygame.font.Font(pygame.font.get_default_font(), size)
 
 
-def display_image(display, image):
+def display_image(display, image, window_size=(800, 600), blend=False):
     """Displays the given image on a pygame window
+    :param blend: whether to blend or not the given image.
+    :param window_size: the size of the pygame's window. Default is (800, 600)
     :param display: pygame.display
     :param image: the image (numpy.array) to display/render on.
     """
+    # Resize image if necessary
+    if (image.shape[1], image.shape[0]) != window_size:
+        image = resize(image, size=window_size)
+
     image_surface = pygame.surfarray.make_surface(image.swapaxes(0, 1))
+
+    if blend:
+        image_surface.set_alpha(100)
+
     display.blit(image_surface, (0, 0))
 
 
@@ -176,15 +184,15 @@ def scale(num, from_interval=(-1.0, +1.0), to_interval=(0.0, 7.0)) -> float:
     return float(round(x))
 
 
-class Profiler(object):
-    """Measures elapsed time."""
-    def __init__(self, block: str):
-        self.t0 = 0.0
-        self.name = block
+def get_blueprint(world: carla.World, id: str) -> carla.ActorBlueprint:
+    return world.get_blueprint_library().find(id)
 
-    def __enter__(self):
-        self.t0 = time.time()
 
-    def __exit__(self):
-        elapsed_time = time.time() - self.t0
-        print(f'Code <{self.name}> takes {round(elapsed_time / 1000.0, 2)}ms.')
+# def save_image(image, name: str, directory='data/images'):
+#     def save():
+#         cv2.imwrite(os.path.join(directory, name), image, cv2.IMREAD_UNCHANGED)
+#         return True
+#
+#     thread = threading.Thread(target=save)
+#     thread.start()
+
