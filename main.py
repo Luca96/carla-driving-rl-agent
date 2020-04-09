@@ -1,23 +1,21 @@
-import os
-import carla
-import pygame
 import logging
 import tensorflow as tf
 
-from tqdm import tqdm
-from tensorforce import Runner, Environment, Agent
-
-from agents.pretrain.human import HumanDriverAgent
 from agents.learn import *
+from agents.learn.experiments import *
 from agents.specifications import Specifications as Specs
 
 from worlds import World
-from worlds.controllers import BasicAgentController, KeyboardController
+from worlds.controllers import KeyboardController
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logger = tf.get_logger()
 logger.setLevel(logging.ERROR)
 
+
+# TODO [project-level]: add assertions!!
+# TODO [project-level]: use os.path.join for directory strings!!
+# TODO [project-level]: use logger and different logging levels for debug, warnings, etc.!!
 
 def get_client(address='localhost', port=2000, timeout=2.0):
     """Connects to the simulator.
@@ -75,157 +73,70 @@ def game_loop(vehicle='vehicle.audi.*', width=800, height=600):
         pygame.quit()
 
 
-def exp_decay(steps, rate, unit='timesteps', initial_value=1.0, increasing=False):
-    return dict(type='decaying',
-                decay='exponential',
-                unit=unit,
-                initial_value=initial_value,
-                increasing=increasing,
-                decay_steps=steps,
-                decay_rate=rate)
-
-
-def test_new_env(agent_builder, timesteps, episodes, vehicle='vehicle.tesla.model3', width=800, height=600,
-                 image_shape=(150, 200, 3), **kwargs):
+def test_sync_event(carla_env, timesteps, episodes, load_agent=False, agent_name='carla-agent', width=800, height=600,
+                    record_dir='data/recordings', vehicle='vehicle.tesla.model3', image_shape=(150, 200, 3), **kwargs):
     pygame.init()
     pygame.font.init()
 
-    try:
-        environment = CarlaEnvironment(client=get_client(),
-                                       image_shape=image_shape,
-                                       actor_filter=vehicle,
-                                       max_fps=20,
-                                       window_size=(800, 600))
-        print('== ENV ==')
+    # "lucky" seeds: 1586040996, 1586041389, 1586041713, 1586114295, 1586125577, 1586125756, 1586125933
 
-        # controller = KeyboardController(environment.world)
+    sync_env = carla_env(image_shape=image_shape,
+                         window_size=(width, height),
+                         timeout=kwargs.pop('timeout', 5.0),
+                         debug=True,
+                         fps=kwargs.pop('max_fps', 30.0),
+                         vehicle_filter=vehicle)
+    print('== ENV ==')
 
-        agent = agent_builder(environment, max_episode_timesteps=timesteps, **kwargs)
-        print('== AGENT ==')
-
-        runner = Runner(agent, environment, max_episode_timesteps=timesteps, num_parallel=None)
-        runner.run(num_episodes=episodes)
-
-        agent.save(directory='weights/agents', filename='carla-agent')
-        print('agent saved.')
-
-        runner.run(num_episodes=1, save_best_agent='weights/agents', evaluation=True)
-        runner.close()
-
-        # for episode in range(episodes):
-        #     print('Epoch ' + str(episode))
-        #     states = environment.reset()
-        #     terminal = False
-        #     total_reward = 0.0
-        #
-        #     for i in range(timesteps):
-        #         actions = agent.act(states)
-        #         states, terminal, reward = environment.execute(actions)
-        #         total_reward += reward
-        #         #
-        #         # print(f'[{epoch}::{i}::{int(total_reward)}] reward: {round(reward, 2)}, actions: {actions}')
-        #         # # print('reward:', reward)
-        #         # # print('actions:', actions)
-        #         agent.observe(reward, terminal)
-        #
-        #         if terminal:
-        #             break
-        #
-        #         # Just to have some manual control while learning, can this be used to aid the agents, as a sort of
-        #         # supervisory signal? And what about adding a sort of 'manual penalty' to the reward function?
-        #         if controller.parse_events(client, world, environment.clock, training=True):
-        #             return
-        #
-        #     # agent.save(directory='weights', filename=f'{agent_type}-car-agent', format='tensorflow', append='episodes')
-        #     # print('agent saved.')
-        #     # agent.reset()
-        #
-        # environment.close()
-
-    finally:
-        pygame.quit()
-
-
-def test_sync_event(carla_env, timesteps, episodes, load_agent=False, agent_name='carla-agent',
-                    vehicle='vehicle.tesla.model3', width=800, height=600, image_shape=(150, 200, 3), **kwargs):
-    pygame.init()
-    pygame.font.init()
-    sync_env = None
+    # agent = Specs.carla_agent(environment=sync_env, max_episode_timesteps=timesteps, **kwargs)
+    agent = Agent.create(agent='tensorforce', environment=sync_env, max_episode_timesteps=timesteps, **kwargs)
+    print('== AGENT ==')
 
     try:
-        sync_env = carla_env(image_shape=image_shape,
-                             window_size=(width, height),
-                             timeout=5.0,
-                             debug=True,
-                             fps=15,
-                             vehicle_filter=vehicle)
-        print('== ENV ==')
-
-        agent = Specs.carla_agent(environment=sync_env, max_episode_timesteps=timesteps, **kwargs)
-        print('== AGENT ==')
-
         if load_agent:
             agent.load(directory='weights/agents', filename=agent_name, environment=sync_env)
             print('Agent loaded.')
 
-        for episode in range(episodes):
-            states = sync_env.reset()
-            total_reward = 0.0
-
-            with sync_env.synchronous_context:
-                # for i in tqdm(range(timesteps), desc=f'E-{episode} [{total_reward}]'):
-                for i in range(timesteps):
-                    actions = agent.act(states)
-                    states, terminal, reward = sync_env.execute(actions)
-                    total_reward += reward
-
-                    terminal = terminal or i == timesteps - 1  # hack for recorder
-
-                    # # print('reward:', reward)
-                    update_performed = agent.observe(reward, terminal)
-
-                    if update_performed:
-                        print(f'{i}/{timesteps} -> update performed.')
-
-                    if terminal:
-                        print('Episode ended.\n')
-                        break
-
-            print(f'E-{episode} total_reward: {round(total_reward, 2)}')
-
-            agent.save(directory='weights/agents', filename=agent_name)
-            print('Agent saved.')
+        sync_env.learn(agent, num_episodes=episodes, max_episode_timesteps=timesteps, agent_name=agent_name,
+                       record_dir=record_dir)
 
     finally:
         sync_env.close()
         pygame.quit()
 
 
-def test_pretrain(episodes, timesteps, **kwargs):
+def test_curriculum_learning(timesteps, episodes, load_agent=False, agent_name='carla-agent',
+                             vehicle='vehicle.tesla.model3', width=800, height=600, image_shape=(150, 200, 3),
+                             **kwargs):
     pygame.init()
     pygame.font.init()
 
+    env = CurriculumCARLAEnvironment(image_shape=image_shape,
+                                     window_size=(width, height),
+                                     timeout=kwargs.pop('timeout', 5.0),
+                                     debug=True,
+                                     fps=kwargs.pop('max_fps', 30.0),  # TODO: crash with 60 fps !??
+                                     vehicle_filter=vehicle)
+    print('== ENV ==')
+
+    agent = Specs.carla_agent(environment=env, max_episode_timesteps=timesteps, **kwargs)
+    print('== AGENT ==')
+
     try:
-        environment = CarlaEnvironment(client=get_client(),
-                                       image_shape=(200, 150, 3),
-                                       actor_filter='vehicle.tesla.model3',
-                                       max_fps=20 + 10,
-                                       window_size=(800, 600))
-        print('== ENV ==')
-
-        agent = HumanDriverAgent(environment=environment,
-                                 max_episode_timesteps=timesteps,
-                                 **kwargs)
-
-        environment.on_reset_event(callback=agent.init_controller)
-        print('== AGENT ==')
-
-        runner = Runner(agent, environment, max_episode_timesteps=timesteps)
-        runner.run(num_episodes=episodes)
-        runner.close()
-
+        env.learn(agent, initial_timesteps=64, max_timesteps=timesteps, difficulty=3, num_stages=episodes,
+                  load_agent=load_agent, agent_name=agent_name, increment=5, max_repetitions=3)
+        print('Curriculum Learning completed.')
     finally:
+        print('Closing...')
+        env.close()
         pygame.quit()
+
+
+def decay(value: float, rate: float, steps: int):
+    for _ in range(steps):
+        value *= rate
+
+    return value
 
 
 if __name__ == '__main__':
@@ -244,57 +155,44 @@ if __name__ == '__main__':
     num_timesteps = batch_size * 3
 
     # TODO: provide a base CARLA env class for a sync, async, pretrain environments..
-    # TODO: do a common CARLA world wrapper for the environments...
+    # TODO: do a common CARLA world wrapper for the environments. (or a world_utils module)
 
-    test_sync_event(CARLAExperiment3, num_timesteps, num_episodes * 20,
-                    width=670, height=500,
-                    load_agent=False, agent_name='carla-agent-evo-f40',
+    tfargs = dict(policy=dict(network=Specs.agent_network(conv=dict(stride=1, pooling='max', filters=36),
+                                                          final=dict(layers=2, units=256, activation='leaky-relu')),
+                              optimizer=dict(type='evolutionary',
+                                             num_samples=6,
+                                             learning_rate=Specs.exp_decay(steps=num_timesteps,
+                                                                           unit='updates',
+                                                                           initial_value=0.1,
+                                                                           rate=0.995)),
+                              temperature=0.90),
 
-                    # Agent arguments:
-                    policy=dict(network=Specs.agent_network(conv=dict(stride=1, pooling='max', filters=36),
-                                                            final=dict(layers=2, units=256, activation='leaky-relu')),
-                                optimizer=dict(type='evolutionary',
-                                               num_samples=5 + 1,
-                                               learning_rate=exp_decay(steps=num_timesteps, rate=0.995)),
-                                # temperature=exp_decay(steps=num_timesteps, increasing=False, rate=0.995)),
-                                temperature=0.90),
+                  batch_size=batch_size,
+                  update_frequency=frequency,
 
-                    batch_size=batch_size,
-                    update_frequency=frequency,
+                  critic=dict(network=Specs.agent_network(conv=dict(stride=1, pooling='max', filters=36),
+                                                          final=dict(layers=2, units=160)),
+                              optimizer=dict(type='adam', learning_rate=3e-3),
+                              temperature=0.70),
 
-                    critic=dict(network=Specs.agent_network(conv=dict(stride=1, pooling='max', filters=36),
-                                                            final=dict(layers=2, units=160)),
-                                optimizer=dict(type='adam', learning_rate=3e-3),
-                                # optimizer=dict(type='adam', learning_rate=exp_decay(steps=num_timesteps, rate=0.995)),
-                                temperature=0.70),
+                  discount=1.0,
+                  horizon=100,
 
-                    discount=1.0,
-                    horizon=100,
+                  preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),
+                                            dict(type='exponential_normalization')]),
 
-                    # (160, 120) -> ~1.5, (140, 105) -> ~2, (100, 75) -> 4
-                    # preprocessing=dict(image=dict(type='image', width=140, height=105, grayscale=True)),
+                  summarizer=Specs.summarizer(frequency=frequency),
 
-                    # preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),  # 100, 75
-                    #                           dict(type='deltafier'),
-                    #                           dict(type='sequence', length=4)],
-                    #                    vehicle_features=[dict(type='deltafier'),
-                    #                                      dict(type='sequence', length=4)],
-                    #                    road_features=[dict(type='deltafier'),
-                    #                                   dict(type='sequence', length=4)],
-                    #                    previous_actions=[dict(type='deltafier'),
-                    #                                      dict(type='sequence', length=4)]),
+                  entropy_regularization=Specs.exp_decay(steps=num_timesteps, initial_value=0.1, rate=0.995),
+                  exploration=0.0 + 0.1)
 
-                    preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),
-                                              dict(type='exponential_normalization')],
-                                       # vehicle_features=dict(type='exponential_normalization'),
-                                       # road_features=dict(type='exponential_normalization'),
-                                       # previous_actions=dict(type='exponential_normalization')
-                                       ),
-                    # TODO: normalize/deltafier rewards?
+    tfargs = Specs.agent_v1(batch_size, frequency, num_timesteps, filters=36,
+                            lr=decay(value=decay(0.1, 0.995, steps=180), rate=0.995, steps=180),
+                            temperature=(decay(0.9, 0.995, 180), decay(0.7, 0.995, 180)))
 
-                    # recorder=dict(directory='data/traces', frequency=1),
+    # test_sync_event(CARLAExperiment3, num_timesteps, num_episodes * 20, width=670, height=500,
+    #                 load_agent=True, agent_name='carla-agent-evo-f40', record_dir=None, **tfargs)
 
-                    summarizer=Specs.summarizer(frequency=frequency),
-
-                    entropy_regularization=exp_decay(steps=num_timesteps, rate=0.995, increasing=False),
-                    exploration=0.0)
+    experiment = CARLABaselineExperiment(window_size=(670, 500), debug=True)
+    experiment.run(agent_args=dict(max_episode_timesteps=512, batch_size=512),
+                   num_episodes=10, max_episode_timesteps=512, record_dir=None, weights_dir=None)

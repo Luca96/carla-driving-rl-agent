@@ -1,4 +1,5 @@
 import math
+import random
 import carla
 
 import worlds.debug
@@ -26,32 +27,15 @@ class Route(object):
     def plan(self, origin: carla.Location, destination: carla.Location):
         """Calculates the sequence of waypoints (a route) from origin to destination."""
         self.path = self.planner.trace_route(origin, destination)
-        self.size = 0.0
-
-        # Compute the size (in meters) of the entire planned route:
-        for i in range(1, len(self.path)):
-            self.size += l2_norm(location1=self.path[i - 1][0].transform.location,
-                                 location2=self.path[i][0].transform.location)
+        self._compute_route_size()
 
         self.closest_path = Object(index=0, distance=0.0, waypoint=self.path[0][0])
 
-    # def update_closest_waypoint(self, location):
-    #     """Returns the closest route's Waypoint to the given location (carla.Location)."""
-    #     closest_waypoint = Object(index=-1, distance=math.inf, waypoint=None)
-    #
-    #     # TODO: takes linear time in len(route), can speedup with binary search?
-    #     for i, pair in enumerate(self.path):
-    #         waypoint = pair[0]
-    #         distance_to_location = l2_norm(location1=location,
-    #                                        location2=waypoint.transform.location)
-    #
-    #         if distance_to_location < closest_waypoint.distance:
-    #             closest_waypoint.index = i
-    #             closest_waypoint.distance = distance_to_location
-    #             closest_waypoint.waypoint = waypoint
-    #
-    #     assert closest_waypoint.index >= 0
-    #     self.closest_path = closest_waypoint
+    def random_plan(self, origin: carla.Location, length: int, distance=2.0):
+        self.path = self.planner.trace_random_route(origin, length, distance)
+        self._compute_route_size()
+
+        self.closest_path = Object(index=0, distance=0.0, waypoint=self.path[0][0])
 
     def update_closest_waypoint(self, location: carla.Location):
         """Returns the closest route's Waypoint to the given location (carla.Location) that advances the completion
@@ -106,3 +90,11 @@ class Route(object):
 
     def get_closest_waypoint_location(self):
         return self.closest_path.waypoint.transform.location
+
+    def _compute_route_size(self):
+        """Compute the size (in meters) of the entire planned route"""
+        self.size = 0.0
+
+        for i in range(1, len(self.path)):
+            self.size += l2_norm(location1=self.path[i - 1][0].transform.location,
+                                 location2=self.path[i][0].transform.location)

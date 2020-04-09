@@ -315,9 +315,9 @@ class SensorSpecs(object):
         elif position == 'top-view':
             return carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0))
         elif position == 'front':
-            return carla.Transform(carla.Location(x=1.6, z=1.7))
+            return carla.Transform(carla.Location(x=1.5, z=1.8))
         elif position == 'on-top':
-            return carla.Transform(carla.Location(x=1.6 - 5.0 + 2.5, y=0.0, z=2.2))
+            return carla.Transform(carla.Location(x=-0.9, y=0.0, z=2.2))
         else:
             return carla.Transform()
 

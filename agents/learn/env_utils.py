@@ -8,29 +8,16 @@ import numpy as np
 import carla
 import pygame
 import threading
+import datetime
+import imageio
 
 from functools import wraps
+from tensorforce import Agent
 
 
-# def load_nasnet_mobile(folder='weights/keras', weights='nasnet_mobile.h5'):
-#     path = os.path.join(folder, weights)
-#     return tf.keras.applications.NASNetMobile(weights=path, pooling='avg')
-#
-#
-# def get_image_compressor_model(backend='nasnet_mobile', **kwargs):
-#     if backend == 'nasnet_mobile':
-#         base_model = load_nasnet_mobile(**kwargs)
-#     else:
-#         raise ValueError(f'backend: {backend} is not available!')
-#
-#     pool2d = base_model.get_layer('global_average_pooling2d')
-#
-#     return tf.keras.models.Model(inputs=base_model.input,
-#                                  outputs=pool2d.output,
-#                                  name=f'{backend}-ImageCompressor')
-
-# source: https://stackoverflow.com/questions/3620943/measuring-elapsed-time-with-the-time-module/46544199
 def profile(fn):
+    # source: https://stackoverflow.com/questions/3620943/measuring-elapsed-time-with-the-time-module/46544199
+
     @wraps(fn)
     def with_profiling(*args, **kwargs):
         start_time = time.time()
@@ -154,7 +141,6 @@ def spawn_actor(world: carla.World, blueprint: carla.ActorBlueprint, spawn_point
         :param attachment_type: the kind of the attachment. Can be 'Rigid' or 'SpringArm'.
         :return: a carla.Actor instance.
     """
-    # actor = world.try_spawn_actor(blueprint, spawn_point, attach_to=attach_to, attachment=attachment_type)
     actor = world.try_spawn_actor(blueprint, spawn_point, attach_to, attachment_type)
 
     if actor is None:
@@ -184,15 +170,45 @@ def scale(num, from_interval=(-1.0, +1.0), to_interval=(0.0, 7.0)) -> float:
     return float(round(x))
 
 
-def get_blueprint(world: carla.World, id: str) -> carla.ActorBlueprint:
-    return world.get_blueprint_library().find(id)
+def get_blueprint(world: carla.World, actor_id: str) -> carla.ActorBlueprint:
+    return world.get_blueprint_library().find(actor_id)
 
 
-# def save_image(image, name: str, directory='data/images'):
-#     def save():
-#         cv2.imwrite(os.path.join(directory, name), image, cv2.IMREAD_UNCHANGED)
-#         return True
-#
-#     thread = threading.Thread(target=save)
-#     thread.start()
+def pygame_save(display, path: str, name: str = None):
+    if name is None:
+        name = 'image-' + str(datetime.datetime.now()) + '.jpg'
 
+    thread = threading.Thread(target=lambda: pygame.image.save(display, os.path.join(path, name)))
+    thread.start()
+
+
+def make_gif(path: str, name: str):
+    # TODO: use tdqm
+    with imageio.get_writer(os.path.join(path, name + '.gif'), mode='I') as writer:
+        for filename in os.listdir(path):
+            image = imageio.imread(filename)
+            writer.append_data(image)
+
+
+def save_agent(agent: Agent, agent_name: str, directory: str, separate_dir=True) -> str:
+    if separate_dir:
+        save_path = os.path.join(directory, agent_name)
+        os.makedirs(save_path, exist_ok=True)
+    else:
+        save_path = directory
+
+    checkpoint_path = agent.save(directory=save_path, filename=agent_name)
+    return checkpoint_path
+
+
+def get_record_path(base_dir: str, prefix='ep', pattern='-'):
+    dirs = sorted(os.listdir(base_dir))
+    count = 0
+
+    if len(dirs) > 0:
+        count = 1 + int(dirs[-1].split(pattern)[1])
+
+    record_path = os.path.join(base_dir, f'{prefix}{pattern}{count}')
+    os.mkdir(record_path)
+
+    return record_path

@@ -100,7 +100,7 @@ class Networks:
 
     @staticmethod
     def convolutional(inputs: [str] = None, output: str = None, initial_filters=32, kernel=(3, 3), pool='max',
-                      activation='relu', stride=1, dropout=0.0, layers=2, normalization='instance'):
+                      activation='relu', stride=1, dropout=0.0, layers=2):
         network = []
 
         if inputs is not None:
@@ -109,33 +109,24 @@ class Networks:
             elif isinstance(inputs, str):
                 network.append(dict(type='retrieve', tensors=[inputs]))
 
-        # network.append(dict(type='image', height=60, width=60, grayscale=True))
-        # network.append(dict(type='image', grayscale=True))
-
         for i in range(1, layers + 1):
-            filters = initial_filters * i
+            network.append(dict(type='conv2d', size=initial_filters * i, window=kernel, stride=stride,
+                                activation=activation, dropout=dropout))
 
-            network.append(dict(type='conv2d', size=filters, window=kernel, stride=stride, activation=activation,
-                                dropout=dropout))
+            # TODO: add batch normalization??
 
-            # if normalization == 'instance':
-            #     network.append(dict(type='instance_normalization'))
-            # elif normalization == 'exponential' or normalization == 'exp':
-            #     network.append(dict(type='exponential_normalization'))
-
-            if pool is not None:
+            if pool:
                 network.append(dict(type='pool2d', reduction=pool))
 
         network.append(dict(type='pooling', reduction='mean'))
 
-        if output is not None:
+        if output:
             network.append(dict(type='register', tensor=output))
 
         return network
 
     @staticmethod
-    def dense(inputs: [str] = None, output: str = None, units=64, layers=2, activation='relu', dropout=0.0,
-              normalization='instance'):
+    def dense(inputs: [str] = None, output: str = None, units=64, layers=2, activation='relu', dropout=0.0):
         network = []
 
         if inputs is not None:
@@ -147,12 +138,7 @@ class Networks:
         for i in range(layers):
             network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
 
-            # if normalization == 'instance':
-            #     network.append(dict(type='instance_normalization'))
-            # elif normalization == 'exponential' or normalization == 'exp':
-            #     network.append(dict(type='exponential_normalization'))
-
-        if output is not None:
+        if output:
             network.append(dict(type='register', tensor=output))
 
         return network
@@ -180,7 +166,6 @@ class Networks:
             network.append(dict(type='internal_rnn', cell=rnn.get('cell', 'lstm'), size=rnn.get('units, 128'),
                                 length=rnn.get('length'), bias=True, activation=rnn.get('activation', 'none'),
                                 dropout=dropout))
-
         return network
 
 
@@ -231,6 +216,7 @@ class Specifications:
 
         return Networks.complex(networks=[
             Networks.convolutional(inputs='image',
+                                   activation=conv.get('activation', 'relu'),
                                    layers=conv.get('layers', 4),
                                    stride=conv.get('stride', 2),
                                    initial_filters=conv.get('filters', 32),
@@ -250,14 +236,21 @@ class Specifications:
             units=final.get('units', 256))
 
     @staticmethod
-    def agent_light_network():
+    def agent_network_v0(dropout=0.2):
         return Networks.complex(networks=[
-            Networks.convolutional(inputs='image', layers=1, initial_filters=3, stride=32, pool='max', output='image_out'),
-            Networks.dense(inputs='vehicle_features', layers=1, units=1, output='vehicle_out'),
-            Networks.dense(inputs='road_features', layers=1, units=1, output='road_out'),
-            Networks.dense(inputs='previous_actions', layers=1, units=1, output='actions_out')],
-            layers=1,
-            units=1)
+            Networks.convolutional(inputs='image', activation='relu', layers=5, stride=2, initial_filters=32, pool=None,
+                                   dropout=dropout, output='image_out'),
+            Networks.dense(inputs='vehicle_features', layers=2, units=32, dropout=dropout,
+                           output='vehicle_out'),
+            Networks.dense(inputs='road_features', layers=2, units=24, dropout=dropout,
+                           output='road_out'),
+            Networks.dense(inputs='previous_actions', layers=1, units=16, dropout=dropout,
+                           output='actions_out')],
+
+            layers=2,
+            activation='relu',
+            rnn=None,
+            units=200)
 
     @staticmethod
     def saver():
@@ -265,9 +258,21 @@ class Specifications:
 
     @staticmethod
     def summarizer(directory='data/summaries', labels=None, frequency=100):
+        # ['graph', 'entropy', 'kl-divergence', 'losses', 'rewards'],
         return dict(directory=directory,
-                    labels=labels or ['graph', 'entropy', 'kl-divergence', 'losses', 'rewards'],
+                    labels=labels or ['entropy', 'action-entropies', 'gaussian', 'exploration', 'beta', 'kl-divergences', 'losses', 'rewards'],
                     frequency=frequency)
+
+    @staticmethod
+    def exp_decay(steps: int, rate: float, unit='timesteps', initial_value=1.0, increasing=False, staircase=False):
+        return dict(type='decaying',
+                    decay='exponential',
+                    unit=unit,
+                    initial_value=initial_value,
+                    increasing=increasing,
+                    staircase=staircase,
+                    decay_steps=steps,
+                    decay_rate=rate)
 
     @staticmethod
     def carla_agent(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict, critic: dict,
@@ -277,21 +282,22 @@ class Specifications:
                             max_episode_timesteps=max_episode_timesteps,
 
                             update=Specifications.update(unit='timesteps', batch_size=batch_size,
-                                                         frequency=update_frequency),
+                                                         frequency=update_frequency,
+                                                         start=batch_size),
                             # Policy
                             policy=Specifications.policy(network=policy['network'],
                                                          temperature=policy.get('temperature', 1.0),
                                                          infer_states_value=True),
                             memory=dict(type='recent'),
                             optimizer=policy.get('optimizer', dict(type='adam', learning_rate=3e-4)),
-                            objective=Specifications.obj.policy_gradient(clipping_value=0.2, early_reduce=True),
+                            objective=Objectives.policy_gradient(clipping_value=0.2, early_reduce=True),
 
                             # Critic
                             baseline_policy=Specifications.policy(distributions='gaussian',
                                                                   network=critic['network'],
                                                                   temperature=critic.get('temperature', 1.0)),
                             baseline_optimizer=critic.get('optimizer', dict(type='adam', learning_rate=3e-4)),
-                            baseline_objective=Specifications.obj.value(value='state', huber_loss=0.1, early_reduce=True),
+                            baseline_objective=Objectives.value(value='state', huber_loss=0.1, early_reduce=True),
 
                             # Reward
                             reward_estimation=dict(discount=discount,
@@ -299,3 +305,69 @@ class Specifications:
                                                    estimate_horizon='early',
                                                    estimate_advantage=True),
                             **kwargs)
+
+    # @staticmethod
+    # def carla_agent_v1(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, **kwargs):
+    #     return Specifications.carla_agent(environment,
+    #                                       max_episode_timesteps,
+    #                                       )
+
+    @staticmethod
+    def agent_v1(batch_size=256, update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1,
+                 units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7), exploration=0.0):
+        ExpDecay = Specifications.exp_decay
+        policy_net = Specifications.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
+                                                  final=dict(layers=layers[0], units=units[0], activation='leaky-relu'))
+
+        decay_lr = ExpDecay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay)
+
+        critic_net = Specifications.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
+                                                  final=dict(layers=layers[1], units=units[1]))
+
+        return dict(policy=dict(network=policy_net,
+                                optimizer=dict(type='evolutionary', num_samples=6, learning_rate=decay_lr),
+                                temperature=temperature[0]),
+
+                    batch_size=batch_size,
+                    update_frequency=update_frequency,
+
+                    critic=dict(network=critic_net,
+                                optimizer=dict(type='adam', learning_rate=3e-3),
+                                temperature=temperature[1]),
+
+                    discount=1.0,
+                    horizon=100,
+
+                    preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),
+                                              dict(type='exponential_normalization')]),
+
+                    summarizer=Specifications.summarizer(frequency=update_frequency),
+
+                    entropy_regularization=ExpDecay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay),
+                    exploration=exploration)
+
+    @staticmethod
+    def agent_v2(batch_size=256, update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1,
+                 units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7)):
+        pass
+
+    @staticmethod
+    def agent_v3():
+        # TODO: augment agent_v1 with an RNN
+        # TODO: also stack 4 input (agent_v3?)
+        # TODO: use separable-convolutions
+        # TODO: reduce input size of image observation, e.g. 84x84, 105x75
+        # TODO: use control instead of previous actions?
+        # TODO: architecture: CNN -> concat(features) -> DNN + RNN -> actions
+
+        # (160, 120) -> ~1.5, (140, 105) -> ~2, (100, 75) -> 4
+        # preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),  # 100, 75
+        #                           dict(type='deltafier'),
+        #                           dict(type='sequence', length=4)],
+        #                    vehicle_features=[dict(type='deltafier'),
+        #                                      dict(type='sequence', length=4)],
+        #                    road_features=[dict(type='deltafier'),
+        #                                   dict(type='sequence', length=4)],
+        #                    previous_actions=[dict(type='deltafier'),
+        #                                      dict(type='sequence', length=4)]),
+        pass

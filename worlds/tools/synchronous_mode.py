@@ -78,8 +78,9 @@ class CARLASyncContext(object):
         register_event(q.put)
         self._queues[name] = q
 
-    def _get_detector_data(self, sensor_queue: queue.Queue):
-        """Retrieves data for detector, the call is non-blocking and does not wait for available data."""
+    @staticmethod
+    def _get_detector_data(sensor_queue: queue.Queue):
+        """Retrieves data for detector, the call is non-blocking thus doesn't wait for available data."""
         data = []
 
         while not sensor_queue.empty():
@@ -91,7 +92,7 @@ class CARLASyncContext(object):
     def _get_sensor_data(self, sensor_queue: queue.Queue, timeout: float):
         """Retrieves data for sensors (i.e. camera and other) it blocks waiting until timeout is expired."""
         while True:
-            data = sensor_queue.get(timeout=timeout)
+            data = sensor_queue.get(timeout=timeout * 10)
             # print('-', data.frame, 1 + sensor_queue.qsize())
 
             if data.frame == self.frame:

@@ -1,5 +1,6 @@
 import math
 import carla
+import random
 import numpy as np
 import networkx as nx
 
@@ -433,3 +434,15 @@ class RoutePlanner(object):
                             break
 
         return route_trace
+
+    def trace_random_route(self, origin: carla.Location, length: int, distance=1.5):
+        assert length > 0
+
+        waypoint = self._dao.get_waypoint(origin)
+        route = []
+
+        for _ in range(length):
+            waypoint = random.choice(waypoint.next(distance))
+            route.append([waypoint, RoadOption.VOID])
+
+        return route
