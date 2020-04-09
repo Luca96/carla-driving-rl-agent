@@ -2,9 +2,10 @@
 
 import os
 import cv2
+import time
 import pygame
-import datetime
 
+from datetime import datetime
 from tensorforce import Environment, Agent
 
 from agents.learn import env_utils
@@ -273,9 +274,7 @@ class SynchronousCARLAEnvironment(Environment):
                  vehicle_filter='vehicle.*', sensors: dict = None, route_resolution=2.0, fps=30.0, visualize=True,
                  debug=False,):
         super().__init__()
-
-        pygame.init()
-        pygame.font.init()
+        env_utils.init_pygame()
 
         self.timeout = timeout
         self.client = env_utils.get_client(address, port, self.timeout)
@@ -443,6 +442,51 @@ class SynchronousCARLAEnvironment(Environment):
         for sensor in self.sensors.values():
             sensor.destroy()
 
+    def train(self, agent: Agent, num_episodes: int, max_episode_timesteps: int, weights_dir='weights/agents',
+              agent_name='carla-agent', load_agent=False, record_dir='data/recordings', skip_frames=20):
+        record_path = None
+        should_record = isinstance(record_dir, str)
+        should_save = isinstance(weights_dir, str)
+
+        try:
+            if load_agent:
+                agent.load(directory='weights_dir', filename=agent_name, environment=self)
+                print('Agent loaded.')
+
+            # TODO: introduce callbacks: 'on_episode_start', 'on_episode_end', 'on_update', 'on_record', ..,
+            for episode in range(num_episodes):
+                states = self.reset()
+                total_reward = 0.0
+
+                if should_record:
+                    record_path = env_utils.get_record_path(base_dir=record_dir)
+                    print(f'Recording in {record_path}.')
+
+                with self.synchronous_context:
+                    self.skip(num_frames=skip_frames)
+                    t0 = datetime.now()
+
+                    for i in range(max_episode_timesteps):
+                        actions = agent.act(states)
+                        states, terminal, reward = self.execute(actions, record_path=record_path)
+
+                        total_reward += reward
+                        terminal = terminal or (i == max_episode_timesteps - 1)
+
+                        if agent.observe(reward, terminal):
+                            print(f'{i + 1}/{max_episode_timesteps} -> update performed.')
+
+                        if terminal:
+                            elapsed = str(datetime.now() - t0).split('.')[0]
+                            print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(total_reward, 2)}\n')
+                            break
+
+                if should_save:
+                    env_utils.save_agent(agent, agent_name, directory=weights_dir)
+                    print('Agent saved.')
+        finally:
+            self.close()
+
     # TODO: not used!
     def add_callback(self, sensor_name: str, callback):
         self.sensors[sensor_name].add_callback(callback)
@@ -465,41 +509,27 @@ class SynchronousCARLAEnvironment(Environment):
             self.collision_penalty += min(impulse, max_impulse)
             self.should_terminate = False
 
-    def _reset_world(self, soft=False, route_size=0):
-        # init actor
-        if not soft:
-            spawn_point = env_utils.random_spawn_point(self.map)
-        else:
-            spawn_point = self.spawn_point
+    def render(self, image: carla.Image, data: dict, actions):
+        env_utils.display_image(self.display, image, window_size=self.window_size)
 
-        if self.vehicle is None:
-            blueprint = env_utils.random_blueprint(self.world, actor_filter=self.vehicle_filter)
-            self.vehicle: carla.Vehicle = env_utils.spawn_actor(self.world, blueprint, spawn_point)
+        if self.sensors.get('sem_camera', False):
+            segmentation = self.sensors['sem_camera'].convert_image(data['sem_camera'])
+            env_utils.display_image(self.display, segmentation, window_size=self.window_size, blend=True)
 
-            self._create_sensors()
-            self.synchronous_context = CARLASyncContext(self.world, self.sensors, fps=self.fps)
-        else:
-            # TODO: cannot change blueprint without re-spawning the actor!
-            self.vehicle.set_transform(spawn_point)
+        # TODO: abstract debugging
+        # TODO: debug stuff are too slow, more than 0.1ms!!!
+        # if self.debug:
+        #     self.debug_info.on_world_tick(snapshot=data['world'])
+        #     self.debug_info.tick(self.clock)
+        #     self.debug_info.render(self.display)
 
-        self.spawn_point = spawn_point
-        self.last_location: carla.Location = spawn_point.location
-        self.destination: carla.Location = env_utils.random_spawn_point(self.map,
-                                                                        different_from=spawn_point.location).location
-        # plan path
-        if route_size <= 0:
-            self.route.plan(origin=self.spawn_point.location, destination=self.destination)
-        else:
-            self.route.random_plan(origin=self.spawn_point.location, length=route_size)
-            self.destination = self.route.path[-1][0].transform.location
+        env_utils.display_text(self.display, self.font, text=self._get_debug_text(actions),
+                               origin=(16, 12), offset=(0, 16))
+        pygame.display.flip()
 
-        # reset reward variables
-        self.travelled_distance = 0.0
-        self.collision_penalty = 0.0
-        self.should_terminate = False
-
-        # TODO: reset sensors?
-
+    # TODO: make 'render' more generic and extensible (i.e. remove 'image' argument).
+    # TODO: Idea: use sensor's callback to register camera-like sensors to the rendering subscription, then return a
+    #  list of rendered sensors' captures.
     def skip(self, num_frames=10):
         """Skips the given amount of frames"""
         for _ in range(num_frames):
@@ -536,26 +566,40 @@ class SynchronousCARLAEnvironment(Environment):
 
         return image
 
-    # TODO: make 'render' more generic and extensible (i.e. remove 'image' argument).
-    # TODO: Idea: use sensor's callback to register camera-like sensors to the rendering subscription, then return a
-    #  list of rendered sensors' captures.
-    def render(self, image: carla.Image, data: dict, actions):
-        env_utils.display_image(self.display, image, window_size=self.window_size)
+    def _reset_world(self, soft=False, route_size=0):
+        # init actor
+        if not soft:
+            spawn_point = env_utils.random_spawn_point(self.map)
+        else:
+            spawn_point = self.spawn_point
 
-        if self.sensors.get('sem_camera', False):
-            segmentation = self.sensors['sem_camera'].convert_image(data['sem_camera'])
-            env_utils.display_image(self.display, segmentation, window_size=self.window_size, blend=True)
+        if self.vehicle is None:
+            blueprint = env_utils.random_blueprint(self.world, actor_filter=self.vehicle_filter)
+            self.vehicle: carla.Vehicle = env_utils.spawn_actor(self.world, blueprint, spawn_point)
 
-        # TODO: abstract debugging
-        # TODO: debug stuff are too slow, more than 0.1ms!!!
-        # if self.debug:
-        #     self.debug_info.on_world_tick(snapshot=data['world'])
-        #     self.debug_info.tick(self.clock)
-        #     self.debug_info.render(self.display)
+            self._create_sensors()
+            self.synchronous_context = CARLASyncContext(self.world, self.sensors, fps=self.fps)
+        else:
+            # TODO: cannot change blueprint without re-spawning the actor!
+            self.vehicle.set_transform(spawn_point)
 
-        env_utils.display_text(self.display, self.font, text=self._get_debug_text(actions),
-                               origin=(16, 12), offset=(0, 16))
-        pygame.display.flip()
+        self.spawn_point = spawn_point
+        self.last_location: carla.Location = spawn_point.location
+        self.destination: carla.Location = env_utils.random_spawn_point(self.map,
+                                                                        different_from=spawn_point.location).location
+        # plan path
+        if route_size <= 0:
+            self.route.plan(origin=self.spawn_point.location, destination=self.destination)
+        else:
+            self.route.random_plan(origin=self.spawn_point.location, length=route_size)
+            self.destination = self.route.path[-1][0].transform.location
+
+        # reset reward variables
+        self.travelled_distance = 0.0
+        self.collision_penalty = 0.0
+        self.should_terminate = False
+
+        # TODO: reset sensors?
 
     def _get_debug_text(self, actions):
         return ['%d FPS' % self.clock.get_fps(),
@@ -571,9 +615,9 @@ class SynchronousCARLAEnvironment(Environment):
                 'Similarity %.2f' % self.similarity,
                 '',
                 'Reward: %.2f' % self.reward(actions),
-                # 'Action penalty: %.2f' % self._action_penalty(actions),
+                'Action penalty: %.2f' % self._action_penalty(actions),
                 'Collision penalty: %.2f' % self.collision_penalty,
-                # 'Skill: %s' % self.get_skill_name()
+                'Skill: %s' % self.get_skill_name()
                 ]
 
     def _update_travelled_distance(self):
@@ -674,6 +718,11 @@ class SynchronousCARLAEnvironment(Environment):
 
         if image.shape != self.image_shape:
             image = env_utils.resize(image, size=self.image_size)
+
+        if np.isnan(image).any() or np.isinf(image).any():
+            print('NaN/Inf', np.sum(np.isnan(image)) + np.sum(np.isinf(image)))
+            np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
+            print(not np.isnan(image).any() and (not np.isinf(image).any()))
 
         # TODO: scale image from [0, 255] to [-1, +1]
         return dict(image=image,

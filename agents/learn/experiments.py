@@ -1,89 +1,18 @@
 """A collection of various experiment settings."""
 
-import os
 import math
-import pygame
-import carla
 import numpy as np
 from tensorforce import Agent
 
 from agents.learn import SynchronousCARLAEnvironment, SensorSpecs, env_utils
-from agents.specifications import Specifications as Specs
 from worlds import utils
-
-
-# TODO: revise method's arguments
-class CARLAExperiment(SynchronousCARLAEnvironment):
-    """Base class for running experiments on CARLA simulator"""
-
-    def create_agent(self, **kwargs) -> Agent:
-        agent = Agent.create(environment=self,
-                             **kwargs)
-
-        print(f'Created {agent.__class__.__name__} agent.')
-        return agent
-
-    def learn(self, agent: Agent, num_episodes: int, max_episode_timesteps: int, weights_dir='weights/agents',
-              agent_name='carla-agent', record_dir='data/recordings', skip_frames=10):
-        record_path = None
-        should_record = isinstance(record_dir, str)
-        should_save = isinstance(weights_dir, str)
-
-        # TODO: introduce callbacks: 'on_episode_start', 'on_episode_end', 'on_update', 'on_record', ..,
-        for episode in range(num_episodes):
-            states = self.reset()
-            total_reward = 0.0
-
-            if should_record:
-                record_path = env_utils.get_record_path(base_dir=record_dir)
-                print(f'Recording in {record_path}.')
-
-            with self.synchronous_context:
-                self.skip(num_frames=skip_frames)
-
-                for i in range(max_episode_timesteps):
-                    actions = agent.act(states)
-                    states, terminal, reward = self.execute(actions, record_path=record_path)
-
-                    total_reward += reward
-                    terminal = terminal or (i == max_episode_timesteps - 1)
-
-                    update_performed = agent.observe(reward, terminal)
-
-                    if update_performed:
-                        print(f'{i}/{max_episode_timesteps} -> update performed.')
-
-                    if terminal:
-                        print(f'Episode-{episode} ended, total_reward: {round(total_reward, 2)}\n')
-                        break
-
-            if should_save:
-                env_utils.save_agent(agent, agent_name, directory=weights_dir)
-                print('Agent saved.')
-
-    def run(self, agent_args: dict, **kwargs):
-        agent = self.create_agent(**agent_args)
-        print('Agent created.')
-
-        try:
-            if kwargs.pop('load_agent', False):
-                agent.load(directory=kwargs.get('weights_dir', 'weights/agents'),
-                           filename=kwargs.get('agent_name', 'carla-agent'),
-                           environment=self)
-                print('Agent loaded.')
-
-            self.learn(agent, **kwargs)
-
-        finally:
-            self.close()
-            pygame.quit()
 
 
 # -------------------------------------------------------------------------------------------------
 # -- Baseline Experiments
 # -------------------------------------------------------------------------------------------------
 
-class CARLABaselineExperiment(CARLAExperiment):
+class CARLABaselineExperiment(SynchronousCARLAEnvironment):
     ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = np.array([0., 0., 0.])
 
@@ -100,27 +29,6 @@ class CARLABaselineExperiment(CARLAExperiment):
                                                          attachment_type='Rigid',
                                                          image_size_x=670, image_size_y=500,
                                                          sensor_tick=1.0 / 30))
-
-    def create_agent(self, max_episode_timesteps=512, batch_size=256, update_frequency=64, horizon=200, discount=0.997,
-                     exploration=0.0, entropy=0.05) -> Agent:
-        return super().create_agent(agent='tensorforce',
-                                    max_episode_timesteps=max_episode_timesteps,
-
-                                    policy=Specs.policy(distributions='gaussian',
-                                                        network=Specs.agent_network_v0(),
-                                                        temperature=0.99),
-                                    optimizer=dict(type='adam', learning_rate=3e-4),
-
-                                    objective=Specs.obj.policy_gradient(clipping_value=0.2),
-
-                                    update=Specs.update(unit='timesteps', batch_size=batch_size,
-                                                        frequency=update_frequency),
-
-                                    reward_estimation=dict(horizon=horizon,
-                                                           discount=discount,
-                                                           estimate_advantage=True),
-                                    exploration=exploration,
-                                    entropy_regularization=entropy)
 
     def _get_vehicle_features(self):
         t = self.vehicle.get_transform()
@@ -152,19 +60,19 @@ class CARLABaselineExperiment(CARLAExperiment):
 
     def _actions_to_control(self, actions):
         # Throttle
-        # if actions[0] < 0:
-        #     self.control.throttle = 0.0
-        #     self.control.brake = 1.0
-        # else:
-        #     self.control.throttle = 1.0
-        #     self.control.brake = 0.0
-
-        if actions[0] < -0.33:
-            self.control.throttle = 0.3
-        elif actions[0] > 0.33:
-            self.control.throttle = 0.9
+        if actions[0] < 0:
+            self.control.throttle = 0.0
+            self.control.brake = 1.0
         else:
-            self.control.throttle = 0.5
+            self.control.throttle = 1.0
+            self.control.brake = 0.0
+
+        # if actions[0] < -0.33:
+        #     self.control.throttle = 0.3
+        # elif actions[0] > 0.33:
+        #     self.control.throttle = 0.9
+        # else:
+        #     self.control.throttle = 0.5
 
         # Steer
         if actions[1] < -0.33:
@@ -182,7 +90,7 @@ class CARLABaselineExperiment(CARLAExperiment):
 # -- Experiments
 # -------------------------------------------------------------------------------------------------
 
-class CARLAExperimentV0(CARLAExperiment):
+class CARLAExperimentEvo(SynchronousCARLAEnvironment):
     # skill, throttle/brake intensity, steer
     ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0])
@@ -194,41 +102,7 @@ class CARLAExperimentV0(CARLAExperiment):
                                                          image_size_x=670, image_size_y=500,
                                                          sensor_tick=1.0 / 30))
 
-    def create_agent(self, batch_size=256, update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1,
-                     units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7), exploration=0.0) -> Agent:
-        ExpDecay = Specs.exp_decay
-        policy_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                         final=dict(layers=layers[0], units=units[0], activation='leaky-relu'))
-
-        decay_lr = ExpDecay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay)
-
-        critic_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                         final=dict(layers=layers[1], units=units[1]))
-
-        return super().create_agent(policy=dict(network=policy_net,
-                                                optimizer=dict(type='evolutionary', num_samples=6,
-                                                               learning_rate=decay_lr),
-                                                temperature=temperature[0]),
-
-                                    batch_size=batch_size,
-                                    update_frequency=update_frequency,
-
-                                    critic=dict(network=critic_net,
-                                                optimizer=dict(type='adam', learning_rate=3e-3),
-                                                temperature=temperature[1]),
-
-                                    discount=1.0,
-                                    horizon=100,
-
-                                    preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),
-                                                              dict(type='exponential_normalization')]),
-
-                                    summarizer=Specifications.summarizer(frequency=update_frequency),
-
-                                    entropy_regularization=ExpDecay(steps=decay_steps, unit='updates', initial_value=lr,
-                                                                    rate=decay),
-                                    exploration=exploration)
-
+    # disable action penalty
     def _action_penalty(self, actions, alpha=1, epsilon=0.01):
         return 0.0
 
@@ -309,84 +183,15 @@ class CARLAExperiment1(SynchronousCARLAEnvironment):
             self.control.reverse = False
 
 
-class CARLAExperiment2(SynchronousCARLAEnvironment):
-    # skill, throttle/brake intensity, steer
-    ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
-    DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0])
-
+class CARLAExperiment2(CARLAExperimentEvo):
     DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
                            collision=SensorSpecs.collision_detector(),
                            camera=SensorSpecs.segmentation_camera(position='front',
                                                                   attachment_type='Rigid',
                                                                   image_size_x=200, image_size_y=150))
 
-    # disable action penalty
-    def _action_penalty(self, actions, alpha=1, epsilon=0.01):
-        return 0.0
 
-    def _actions_to_control(self, actions):
-        skill = self.get_skill_name()
-        reverse = self.control.reverse
-
-        if skill == 'brake':
-            throttle = 0.0
-            brake = max(0.1, (actions[1] + 1) / 2.0)
-            steer = float(actions[2])
-        elif skill == 'forward':
-            throttle = max(0.1, (actions[1] + 1) / 2.0)
-            brake = 0.0
-            steer = 0.0
-            reverse = False
-        elif skill == 'forward right':
-            throttle = max(0.1, (actions[1] + 1) / 2.0)
-            brake = 0.0
-            steer = max(0.1, abs(actions[2]))
-            reverse = False
-        elif skill == 'forward left':
-            throttle = max(0.1, (actions[1] + 1) / 2.0)
-            brake = 0.0
-            steer = min(-0.1, -abs(actions[2]))
-            reverse = False
-        elif skill == 'backward':
-            throttle = max(0.1, (actions[1] + 1) / 2.0)
-            brake = 0.0
-            steer = 0.0
-            reverse = True
-        elif skill == 'backward left':
-            throttle = max(0.1, (actions[1] + 1) / 2.0)
-            brake = 0.0
-            steer = max(0.1, abs(actions[2]))
-            reverse = True
-        elif skill == 'backward right':
-            throttle = max(0.1, (actions[1] + 1) / 2.0)
-            brake = 0.0
-            steer = min(-0.1, -abs(actions[2]))
-            reverse = True
-        else:
-            # idle/stop
-            throttle = 0.0
-            brake = 0.0
-            steer = 0.0
-            reverse = False
-
-        self.control.throttle = float(throttle)
-        self.control.brake = float(brake)
-        self.control.steer = float(steer)
-        self.control.reverse = reverse
-        self.control.hand_brake = False
-
-
-class CARLAExperiment3(CARLAExperiment2):
-    DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
-                           collision=SensorSpecs.collision_detector(),
-                           camera=SensorSpecs.rgb_camera(position='front',
-                                                         attachment_type='Rigid',
-                                                         # image_size_x=200, image_size_y=150,
-                                                         image_size_x=670, image_size_y=500,
-                                                         sensor_tick=1.0 / 30))
-
-
-class CARLAExperiment4(CARLAExperiment3):
+class CARLAExperiment4(CARLAExperimentEvo):
 
     def _get_observation(self, image):
         if image is None:
@@ -394,6 +199,8 @@ class CARLAExperiment4(CARLAExperiment3):
 
         if image.shape != self.image_shape:
             image = env_utils.resize(image, size=self.image_size)
+
+        np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
 
         return dict(image=(2 * image - 255.0) / 255.0,
                     vehicle_features=self._get_vehicle_features(),
@@ -405,7 +212,7 @@ class CARLAExperiment4(CARLAExperiment3):
 # -- Curriculum Learning Experiment
 # -------------------------------------------------------------------------------------------------
 
-class CurriculumCARLAEnvironment(CARLAExperiment3):
+class CurriculumCARLAEnvironment(CARLAExperimentEvo):
 
     def learn(self, agent: Agent, initial_timesteps: int, difficulty=1, increment=5, num_stages=1, max_timesteps=1024,
               trials_per_stage=5, max_repetitions=1, save_agent=True, load_agent=False, agent_name='carla-agent'):

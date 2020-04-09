@@ -41,6 +41,18 @@ def get_client(address, port, timeout=2.0) -> carla.Client:
     return client
 
 
+# -------------------------------------------------------------------------------------------------
+# -- PyGame Utils
+# -------------------------------------------------------------------------------------------------
+
+def init_pygame():
+    if not pygame.get_init():
+        pygame.init()
+
+    if not pygame.font.get_init():
+        pygame.font.init()
+
+
 def get_display(window_size, mode=pygame.HWSURFACE | pygame.DOUBLEBUF):
     """Returns a display used to render images and text.
         :param window_size: a tuple (width: int, height: int)
@@ -79,6 +91,16 @@ def display_text(display, font, text: [str], color=(255, 255, 255), origin=(0, 0
     for line in text:
         display.blit(font.render(line, True, color), position)
         position = (position[0] + offset[0], position[1] + offset[1])
+
+
+def pygame_save(display, path: str, name: str = None):
+    if name is None:
+        name = 'image-' + str(datetime.datetime.now()) + '.jpg'
+
+    thread = threading.Thread(target=lambda: pygame.image.save(display, os.path.join(path, name)))
+    thread.start()
+
+# -------------------------------------------------------------------------------------------------
 
 
 def random_blueprint(world: carla.World, actor_filter='vehicle.*', role_name='agent') -> carla.ActorBlueprint:
@@ -172,14 +194,6 @@ def scale(num, from_interval=(-1.0, +1.0), to_interval=(0.0, 7.0)) -> float:
 
 def get_blueprint(world: carla.World, actor_id: str) -> carla.ActorBlueprint:
     return world.get_blueprint_library().find(actor_id)
-
-
-def pygame_save(display, path: str, name: str = None):
-    if name is None:
-        name = 'image-' + str(datetime.datetime.now()) + '.jpg'
-
-    thread = threading.Thread(target=lambda: pygame.image.save(display, os.path.join(path, name)))
-    thread.start()
 
 
 def make_gif(path: str, name: str):

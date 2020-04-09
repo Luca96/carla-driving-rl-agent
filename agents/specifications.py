@@ -169,16 +169,11 @@ class Networks:
         return network
 
 
-class Agents:
-    pass
-
-
 class Specifications:
     """Explicits TensorForce's specifications as dicts"""
     objectives = Objectives
     optimizers = Optimizers
     networks = Networks
-    agents = Agents
 
     # Short names:
     obj = objectives
@@ -306,53 +301,8 @@ class Specifications:
                                                    estimate_advantage=True),
                             **kwargs)
 
-    # @staticmethod
-    # def carla_agent_v1(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, **kwargs):
-    #     return Specifications.carla_agent(environment,
-    #                                       max_episode_timesteps,
-    #                                       )
-
     @staticmethod
-    def agent_v1(batch_size=256, update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1,
-                 units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7), exploration=0.0):
-        ExpDecay = Specifications.exp_decay
-        policy_net = Specifications.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                                  final=dict(layers=layers[0], units=units[0], activation='leaky-relu'))
-
-        decay_lr = ExpDecay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay)
-
-        critic_net = Specifications.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                                  final=dict(layers=layers[1], units=units[1]))
-
-        return dict(policy=dict(network=policy_net,
-                                optimizer=dict(type='evolutionary', num_samples=6, learning_rate=decay_lr),
-                                temperature=temperature[0]),
-
-                    batch_size=batch_size,
-                    update_frequency=update_frequency,
-
-                    critic=dict(network=critic_net,
-                                optimizer=dict(type='adam', learning_rate=3e-3),
-                                temperature=temperature[1]),
-
-                    discount=1.0,
-                    horizon=100,
-
-                    preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),
-                                              dict(type='exponential_normalization')]),
-
-                    summarizer=Specifications.summarizer(frequency=update_frequency),
-
-                    entropy_regularization=ExpDecay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay),
-                    exploration=exploration)
-
-    @staticmethod
-    def agent_v2(batch_size=256, update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1,
-                 units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7)):
-        pass
-
-    @staticmethod
-    def agent_v3():
+    def agent_v2():
         # TODO: augment agent_v1 with an RNN
         # TODO: also stack 4 input (agent_v3?)
         # TODO: use separable-convolutions
