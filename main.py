@@ -93,6 +93,9 @@ if __name__ == '__main__':
 
     # game_loop()
 
+    # TODO: implement PretranAgent
+    # TODO: change problem from 'reach destination' to 'route follow'!
+
     num_episodes = 3
     batch_size = 256
     frequency = batch_size
@@ -105,8 +108,16 @@ if __name__ == '__main__':
     # experiment.train(agent=Agents.baseline(experiment, batch_size=512),
     #                  num_episodes=10, max_episode_timesteps=512, record_dir=None, weights_dir=None)
 
-    experiment = CARLAExperimentEvo(window_size=(670, 500), debug=True)
-    experiment.train(agent=Agents.evolutionary(experiment, 512, update_frequency=128, filters=40, exploration=0.1),
-                     num_episodes=10, max_episode_timesteps=512, agent_name='evo', record_dir=None)
+    # experiment = CARLAExperimentEvo(window_size=(670, 500), debug=True)
+    # experiment.train(agent=Agents.evolutionary(experiment, 512, update_frequency=256, filters=40, exploration=0.1),
+    #                  num_episodes=10, max_episode_timesteps=512, agent_name='evo', record_dir=None, load_agent=True)
+
+    for i in range(1, 100 + 1):
+        print(f'Trace-{i}')
+        experiment = CARLAPretrainExperiment(window_size=(670, 500), debug=True, vehicle_filter='vehicle.tesla.model3')
+
+        experiment.train(agent=Agents.dummy.random_walk(experiment, max_episode_timesteps=256, speed=30,
+                                                        traces_dir='data/traces/pretrain_tesla_batch256'),
+                         num_episodes=1, max_episode_timesteps=256, record_dir=None, weights_dir=None, load_agent=False)
 
     pygame.quit()

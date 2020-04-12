@@ -1,7 +1,9 @@
 """A collection of various experiment settings."""
 
 import math
+import carla
 import numpy as np
+
 from tensorforce import Agent
 
 from agents.learn import SynchronousCARLAEnvironment, SensorSpecs, env_utils
@@ -207,6 +209,67 @@ class CARLAExperiment4(CARLAExperimentEvo):
                     road_features=self._get_road_features(),
                     previous_actions=self.prev_actions)
 
+# -------------------------------------------------------------------------------------------------
+# -- Pretraining Experiments
+# -------------------------------------------------------------------------------------------------
+
+
+class CARLAPretrainExperiment(CARLAExperimentEvo):
+    DEFAULT_SENSORS = dict(imu=SensorSpecs.imu(),
+                           collision=SensorSpecs.collision_detector(),
+                           camera=SensorSpecs.rgb_camera(position='front',
+                                                         attachment_type='Rigid',
+                                                         image_size_x=670, image_size_y=500,
+                                                         sensor_tick=1.0 / 30.0))
+
+    def reward(self, actions, time_cost=-1.0, b=-1000.0, c=2.0, d=2.0):
+        speed = utils.speed(self.vehicle)
+        direction_penalty = speed + 1
+        efficiency_term = 0.0
+
+        speed_limit = self.vehicle.get_speed_limit()
+
+        if speed <= speed_limit:
+            speed_penalty = 0.0 if speed > 10.0 else -1.0
+        else:
+            speed_penalty = c * (speed_limit - speed)
+
+        return time_cost - self.collision_penalty + efficiency_term + direction_penalty + speed_penalty
+
+    @staticmethod
+    def _skill_from_control(control: carla.VehicleControl) -> (float, str):
+        throttle = control.throttle
+        steer = control.steer
+        brake = control.brake
+        reverse = control.reverse
+
+        if throttle == 0.0 and brake > 0.0:
+            return -0.7, 'brake'
+        elif not reverse:
+            if (throttle > 0.0) and (brake == 0.0) and (steer == 0.0):
+                return -0.4, 'forward'
+            elif (throttle > 0.0) and (brake == 0.0) and (steer < 0.0):
+                return -0.15, 'forward left'
+            elif (throttle > 0.0) and (brake == 0.0) and (steer > 0.0):
+                return 0.1, 'forward right'
+            else:
+                return -1.0, 'idle'
+        else:
+            if (throttle > 0.0) and (brake == 0.0) and (steer == 0.0):
+                return 0.4, 'backward'
+            elif (throttle > 0.0) and (brake == 0.0) and (steer > 0.0):
+                return 0.7, 'backward left'
+            elif (throttle > 0.0) and (brake == 0.0) and (steer < 0.0):
+                return 0.9, 'backward right'
+
+    def control_to_actions(self, control: carla.VehicleControl):
+        skill, name = self._skill_from_control(control)
+
+        if control.throttle > 0.0:
+            return [skill, control.throttle, control.steer], name
+        else:
+            return [skill, control.brake, control.steer], name
+
 
 # -------------------------------------------------------------------------------------------------
 # -- Curriculum Learning Experiment
@@ -291,3 +354,7 @@ class CurriculumCARLAEnvironment(CARLAExperimentEvo):
                     vehicle_features=self._get_vehicle_features(),
                     road_features=self._get_road_features(),
                     previous_actions=self.prev_actions)
+
+
+
+

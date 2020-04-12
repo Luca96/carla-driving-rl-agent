@@ -196,7 +196,6 @@ class CollisionSensor(Sensor):
 
     def destroy(self):
         super().destroy()
-        self.history.clear()
         self.history = None
         self.history_size = None
         self.hud = None

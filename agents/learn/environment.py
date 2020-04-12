@@ -298,6 +298,7 @@ class SynchronousCARLAEnvironment(Environment):
         self.prev_actions = None
 
         # vehicle sensors suite
+        # TODO: push below and remove 'DEFAULT_SENSORS', call 'default_sensors()' instead.
         self.sensors_spec = sensors if sensors is not None else self.DEFAULT_SENSORS
         self.sensors = dict()
 
@@ -443,10 +444,14 @@ class SynchronousCARLAEnvironment(Environment):
             sensor.destroy()
 
     def train(self, agent: Agent, num_episodes: int, max_episode_timesteps: int, weights_dir='weights/agents',
-              agent_name='carla-agent', load_agent=False, record_dir='data/recordings', skip_frames=20):
+              agent_name='carla-agent', load_agent=False, record_dir='data/recordings', skip_frames=25):
         record_path = None
         should_record = isinstance(record_dir, str)
         should_save = isinstance(weights_dir, str)
+
+        if agent is None:
+            print('Using default agent "if available"...')
+            agent = self.default_agent()
 
         try:
             if load_agent:
@@ -486,6 +491,18 @@ class SynchronousCARLAEnvironment(Environment):
                     print('Agent saved.')
         finally:
             self.close()
+
+    def default_sensors(self) -> dict:
+        """Returns a predefined dict of sensors specifications"""
+        # TODO: not used
+        return dict(imu=SensorSpecs.imu(),
+                    collision=SensorSpecs.collision_detector(),
+                    camera=SensorSpecs.rgb_camera(position='top',
+                                                  image_size_x=self.image_shape[1], image_size_y=self.image_shape[0]))
+
+    def default_agent(self) -> Agent:
+        """Returns a predefined agent for this environment"""
+        raise NotImplementedError('There is no default agent, define your own!')
 
     # TODO: not used!
     def add_callback(self, sensor_name: str, callback):
@@ -537,6 +554,10 @@ class SynchronousCARLAEnvironment(Environment):
 
         if num_frames > 0:
             print(f'Skipped {num_frames} frames.')
+
+    def control_to_actions(self, control: carla.VehicleControl):
+        """Only used by a pretraining agent."""
+        raise NotImplementedError
 
     # TODO: use callbacks to customize behaviour easily, e.g. on_data_received, on_update, on_draw, ....
     @profile
@@ -719,16 +740,20 @@ class SynchronousCARLAEnvironment(Environment):
         if image.shape != self.image_shape:
             image = env_utils.resize(image, size=self.image_size)
 
-        if np.isnan(image).any() or np.isinf(image).any():
-            print('NaN/Inf', np.sum(np.isnan(image)) + np.sum(np.isinf(image)))
-            np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
-            print(not np.isnan(image).any() and (not np.isinf(image).any()))
-
         # TODO: scale image from [0, 255] to [-1, +1]
-        return dict(image=image,
-                    vehicle_features=self._get_vehicle_features(),
-                    road_features=self._get_road_features(),
-                    previous_actions=self.prev_actions)
+        observation = dict(image=image,
+                           vehicle_features=self._get_vehicle_features(),
+                           road_features=self._get_road_features(),
+                           previous_actions=self.prev_actions)
+
+        # check for nan/inf values
+        for key, value in observation.items():
+            if np.isnan(value).any() or np.isinf(value).any():
+                print(f'[{key}] NaN/Inf', np.sum(np.isnan(value)) + np.sum(np.isinf(value)))
+                np.nan_to_num(value, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
+                print(not np.isnan(value).any() and (not np.isinf(value).any()))
+
+        return observation
 
     def _get_vehicle_features(self):
         """Returns a dict(speed, position, destination, compass) representing the vehicle location state"""
@@ -791,7 +816,8 @@ class SynchronousCARLAEnvironment(Environment):
                 WAYPOINT_DICT['lane_marking_type'][waypoint.right_lane_marking.type]]
 
     def _create_sensors(self):
-        for name, kwargs in self.sensors_spec.items():
+        for name, args in self.sensors_spec.items():
+            kwargs = args.copy()
             sensor_type = kwargs.pop('type')
 
             if sensor_type == 'sensor.other.collision':
