@@ -48,7 +48,6 @@ class Spawner(object):
                 car_blueprint.set_attrinute('driver_id', driver_id)
 
             # spawn blueprint into the worlds
-            # TODO: 'try_spawn_actor' will return None on error
             vehicle = self.world.try_spawn_actor(car_blueprint, transform)
             self.vehicles.append(vehicle)
 

@@ -1,39 +1,18 @@
 """A collection of sensors helpers."""
 
 import math
-import collections
 import numpy as np
 import carla
-import time
 
-from functools import wraps
-from worlds import utils
 
 # TODO: add support for other sensors: lidar, radar, depth camera etc.
-
-
-def profile(fn):
-    @wraps(fn)
-    def with_profiling(*args, **kwargs):
-        start_time = time.time()
-        ret = fn(*args, **kwargs)
-
-        elapsed_time = time.time() - start_time
-        # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
-        # print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
-
-        return ret
-
-    return with_profiling
-
-
 class Sensor(object):
     """Base class for sensor wrappers."""
-    def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), attachment_type=None, callback=None,
+    def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), attachment_type=None,
                  attributes: dict = None):
         self.parent = parent_actor
         self.world = self.parent.get_world()
-        self.event_callbacks = [callback] if callback is not None else []  # TODO: migliorare API
+        self.event_callbacks = []
 
         # detector-sensors retrieve data only when triggered (not at each tick!)
         self.sensor, self.is_detector = self._spawn(transform, attachment_type, attributes or dict())
@@ -42,9 +21,12 @@ class Sensor(object):
     def name(self):
         raise NotImplementedError
 
+    def set_parent_actor(self, actor: carla.Actor):
+        self.parent = actor
+
     def add_callback(self, callback):
-        if callback is not None:
-            self.event_callbacks.append(callback)
+        assert callback is not None
+        self.event_callbacks.append(callback)
 
     def clear_callbacks(self):
         self.event_callbacks.clear()
@@ -162,43 +144,12 @@ class SemanticCameraSensor(CameraSensor):
 # -------------------------------------------------------------------------------------------------
 
 class CollisionSensor(Sensor):
-    def __init__(self, parent_actor, hud, callback=None, history_size=4000):
-        super().__init__(parent_actor, callback=callback)
-        self.history = []
-        self.history_size = history_size
-        self.hud = hud
+    def __init__(self, parent_actor, **kwargs):
+        super().__init__(parent_actor, **kwargs)
 
     @property
     def name(self):
         return 'sensor.other.collision'
-
-    def get_collision_history(self):
-        history = collections.defaultdict(int)
-
-        for frame, intensity in self.history:
-            history[frame] += intensity
-
-        return history
-
-    def on_event(self, event):
-        super().on_event(event)
-
-        actor_type = utils.get_actor_display_name(event.other_actor)
-        self.hud.notification('Collision with %r' % actor_type)
-        print('Collision with %r' % actor_type)
-
-        impulse = event.normal_impulse
-        intensity = utils.vector_norm(impulse)
-        self.history.append((event.frame, intensity))
-
-        if len(self.history) > self.history_size:
-            self.history.pop(0)
-
-    def destroy(self):
-        super().destroy()
-        self.history = None
-        self.history_size = None
-        self.hud = None
 
 
 # -------------------------------------------------------------------------------------------------
@@ -206,27 +157,12 @@ class CollisionSensor(Sensor):
 # -------------------------------------------------------------------------------------------------
 
 class LaneInvasionSensor(Sensor):
-    def __init__(self, parent_actor, hud, callback=None):
-        super().__init__(parent_actor, callback=callback)
-        self.hud = hud
+    def __init__(self, parent_actor, **kwargs):
+        super().__init__(parent_actor, **kwargs)
 
     @property
     def name(self):
         return 'sensor.other.lane_invasion'
-
-    def on_event(self, event):
-        super().on_event(event)
-
-        # Notify lane invasion
-        lane_types = set(x.type for x in event.crossed_lane_markings)
-        text = ['%r' % str(x).split()[-1] for x in lane_types]
-
-        # TODO: uncomment
-        # self.hud.notification('Crossed line %s' % ' and '.join(text))
-
-    def destroy(self):
-        super().destroy()
-        self.hud = None
 
 
 # -------------------------------------------------------------------------------------------------
@@ -234,8 +170,8 @@ class LaneInvasionSensor(Sensor):
 # -------------------------------------------------------------------------------------------------
 
 class GnssSensor(Sensor):
-    def __init__(self, parent_actor, callback=None):
-        super().__init__(parent_actor, transform=carla.Transform(carla.Location(x=1.0, z=2.8)), callback=callback)
+    def __init__(self, parent_actor, transform=carla.Transform(carla.Location(x=1.0, z=2.8))):
+        super().__init__(parent_actor, transform=transform)
         self.lat = 0.0
         self.lon = 0.0
 
@@ -259,7 +195,7 @@ class GnssSensor(Sensor):
 # -------------------------------------------------------------------------------------------------
 
 class IMUSensor(Sensor):
-    def __init__(self, parent_actor, callback=None):
+    def __init__(self, parent_actor):
         super().__init__(parent_actor)
         self.accelerometer = (0.0, 0.0, 0.0)
         self.gyroscope = (0.0, 0.0, 0.0)

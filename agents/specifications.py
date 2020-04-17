@@ -1,7 +1,9 @@
 """A list of classes that wraps specifications dict for the ease of defining TensorforceAgents agents"""
+
+from typing import Optional
 from tensorforce import Agent
 
-from agents.learn import SynchronousCARLAEnvironment
+from agents.environment import SynchronousCARLAEnvironment
 
 
 class Objectives:
@@ -100,7 +102,7 @@ class Networks:
 
     @staticmethod
     def convolutional(inputs: [str] = None, output: str = None, initial_filters=32, kernel=(3, 3), pool='max',
-                      activation='relu', stride=1, dropout=0.0, layers=2):
+                      activation='relu', stride=1, dropout=0.0, layers=2, normalization=None):
         network = []
 
         if inputs is not None:
@@ -113,7 +115,8 @@ class Networks:
             network.append(dict(type='conv2d', size=initial_filters * i, window=kernel, stride=stride,
                                 activation=activation, dropout=dropout))
 
-            # TODO: add batch normalization??
+            if normalization == 'batch':
+                network.append(dict(type='keras', layer='BatchNormalization'))
 
             if pool:
                 network.append(dict(type='pool2d', reduction=pool))
@@ -206,7 +209,6 @@ class Specifications:
 
     @staticmethod
     def agent_network(conv: dict, rnn: dict = None, final: dict = None, dropout=0.2):
-        # TODO: image stack 4-images (i.e. concat depth)?? or stack last-4 states and actions?
         final = final or dict()
 
         return Networks.complex(networks=[
@@ -248,6 +250,29 @@ class Specifications:
             units=200)
 
     @staticmethod
+    def agent_network_v2(conv: dict, rnn: dict = None, final: dict = None, dropout=0.2):
+        final = final or dict()
+
+        return Networks.complex(networks=[
+            Networks.convolutional(inputs='image',
+                                   activation=conv.get('activation', 'relu'),
+                                   layers=conv.get('layers', 4),
+                                   stride=conv.get('stride', 2),
+                                   initial_filters=conv.get('filters', 32),
+                                   pool=conv.get('pooling', None),
+                                   dropout=dropout,
+                                   output='image_out'),
+
+            [dict(type='register', tensor='vehicle_features')],
+            [dict(type='register', tensor='road_features')],
+            [dict(type='register', tensor='previous_actions')]],
+
+            layers=final.get('layers', 2),
+            activation=final.get('activation', 'none'),
+            rnn=rnn,
+            units=final.get('units', 256))
+
+    @staticmethod
     def saver():
         raise NotImplementedError
 
@@ -255,7 +280,8 @@ class Specifications:
     def summarizer(directory='data/summaries', labels=None, frequency=100):
         # ['graph', 'entropy', 'kl-divergence', 'losses', 'rewards'],
         return dict(directory=directory,
-                    labels=labels or ['entropy', 'action-entropies', 'gaussian', 'exploration', 'beta', 'kl-divergences', 'losses', 'rewards'],
+                    labels=labels or ['entropy', 'action-entropies', 'gaussian', 'exploration', 'beta',
+                                      'kl-divergences', 'losses', 'rewards'],
                     frequency=frequency)
 
     @staticmethod
@@ -270,8 +296,19 @@ class Specifications:
                     decay_rate=rate)
 
     @staticmethod
-    def carla_agent(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict, critic: dict,
-                    discount=1.0, horizon=100, batch_size=256, update_frequency=64, **kwargs):
+    def carla_agent(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict,
+                    critic: Optional[dict], discount=1.0, horizon=100, batch_size=256, update_frequency=64, **kwargs):
+        if critic is None:
+            critic_policy = None
+            critic_opt = None
+            critic_obj = None
+        else:
+            critic_policy = Specifications.policy(distributions=critic.get('distributions', 'gaussian'),
+                                                  network=critic['network'],
+                                                  temperature=critic.get('temperature', 1.0))
+            critic_opt = critic.get('optimizer', dict(type='adam', learning_rate=3e-4))
+            critic_obj = critic.get('objective', Objectives.value(value='state', huber_loss=0.1, early_reduce=True))
+
         return Agent.create(agent='tensorforce',
                             environment=environment,
                             max_episode_timesteps=max_episode_timesteps,
@@ -281,6 +318,7 @@ class Specifications:
                                                          start=batch_size),
                             # Policy
                             policy=Specifications.policy(network=policy['network'],
+                                                         distributions=policy.get('distributions', None),
                                                          temperature=policy.get('temperature', 1.0),
                                                          infer_states_value=True),
                             memory=dict(type='recent'),
@@ -288,11 +326,9 @@ class Specifications:
                             objective=Objectives.policy_gradient(clipping_value=0.2, early_reduce=True),
 
                             # Critic
-                            baseline_policy=Specifications.policy(distributions='gaussian',
-                                                                  network=critic['network'],
-                                                                  temperature=critic.get('temperature', 1.0)),
-                            baseline_optimizer=critic.get('optimizer', dict(type='adam', learning_rate=3e-4)),
-                            baseline_objective=Objectives.value(value='state', huber_loss=0.1, early_reduce=True),
+                            baseline_policy=critic_policy,
+                            baseline_optimizer=critic_opt,
+                            baseline_objective=critic_obj,
 
                             # Reward
                             reward_estimation=dict(discount=discount,
@@ -303,12 +339,11 @@ class Specifications:
 
     @staticmethod
     def agent_v2():
-        # TODO: augment agent_v1 with an RNN
+        # TODO: augment agent with an RNN
         # TODO: also stack 4 input (agent_v3?)
         # TODO: use separable-convolutions
         # TODO: reduce input size of image observation, e.g. 84x84, 105x75
         # TODO: use control instead of previous actions?
-        # TODO: architecture: CNN -> concat(features) -> DNN + RNN -> actions
 
         # (160, 120) -> ~1.5, (140, 105) -> ~2, (100, 75) -> 4
         # preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),  # 100, 75

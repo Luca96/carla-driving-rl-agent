@@ -1,15 +1,7 @@
-#!/usr/bin/env python
-
-# Copyright (c) 2019 Computer Vision Center (CVC) at the Universitat Autonoma de
-# Barcelona (UAB).
-#
-# This work is licensed under the terms of the MIT license.
-# For a copy, see <https://opensource.org/licenses/MIT>.
-
 import carla
 import queue
 
-from worlds.debug import profile
+from tools.utils import profile
 
 
 class CARLASyncContext(object):
@@ -17,13 +9,14 @@ class CARLASyncContext(object):
     Context manager to synchronize output from different sensors. Synchronous
     mode is enabled as long as we are inside this context
 
-        with CarlaSyncMode(world, sensors) as sync_mode:
+        with CARLASyncContext(world, sensors) as sync_mode:
             while True:
                 data = sync_mode.tick(timeout=1.0)
 
+    This code is based on https://github.com/carla-simulator/carla/blob/master/PythonAPI/examples/synchronous_mode.py
     """
 
-    def __init__(self, world, sensors: dict, fps=30, **kwargs):
+    def __init__(self, world, sensors: dict, fps=30):
         self.world = world
         self.sensors = sensors
         self.frame = None
@@ -49,13 +42,18 @@ class CARLASyncContext(object):
 
         return self
 
+    def __exit__(self, *args, **kwargs):
+        self.world.apply_settings(self._settings)
+
+        for sensor in self.sensors.values():
+            sensor.stop()
+
     @profile
     def tick(self, timeout):
         self.frame = self.world.tick()
 
         data = dict()
         for name, q in self._queues.items():
-            # print(f'[{self.frame}]', name, q.qsize())
 
             if name != 'world' and self.sensors[name].is_detector:
                 # Detectors retrieve data only when triggered so have to not wait
@@ -65,12 +63,6 @@ class CARLASyncContext(object):
                 data[name] = self._get_sensor_data(q, timeout)
 
         return data
-
-    def __exit__(self, *args, **kwargs):
-        self.world.apply_settings(self._settings)
-
-        for sensor in self.sensors.values():
-            sensor.stop()
 
     def _add_queue(self, name, register_event):
         """Registers an even on its own queue identified by name"""
@@ -92,8 +84,7 @@ class CARLASyncContext(object):
     def _get_sensor_data(self, sensor_queue: queue.Queue, timeout: float):
         """Retrieves data for sensors (i.e. camera and other) it blocks waiting until timeout is expired."""
         while True:
-            data = sensor_queue.get(timeout=timeout * 10)
-            # print('-', data.frame, 1 + sensor_queue.qsize())
+            data = sensor_queue.get(timeout=timeout)
 
             if data.frame == self.frame:
                 return data

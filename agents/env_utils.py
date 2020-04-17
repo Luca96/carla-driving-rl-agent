@@ -2,47 +2,18 @@
 
 import os
 import cv2
-import time
 import random
 import numpy as np
 import carla
 import pygame
 import threading
 import datetime
-import imageio
 
-from functools import wraps
 from tensorforce import Agent
 
 
-def profile(fn):
-    # source: https://stackoverflow.com/questions/3620943/measuring-elapsed-time-with-the-time-module/46544199
-
-    @wraps(fn)
-    def with_profiling(*args, **kwargs):
-        start_time = time.time()
-        ret = fn(*args, **kwargs)
-
-        elapsed_time = time.time() - start_time
-        # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
-        # print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
-
-        return ret
-
-    return with_profiling
-
-
-def get_client(address, port, timeout=2.0) -> carla.Client:
-    """Connects to the simulator.
-        @:returns a carla.Client instance if the CARLA simulator accepts the connection.
-    """
-    client: carla.Client = carla.Client(address, port)
-    client.set_timeout(timeout)
-    return client
-
-
 # -------------------------------------------------------------------------------------------------
-# -- PyGame Utils
+# -- PyGame
 # -------------------------------------------------------------------------------------------------
 
 def init_pygame():
@@ -89,7 +60,11 @@ def display_text(display, font, text: [str], color=(255, 255, 255), origin=(0, 0
     position = origin
 
     for line in text:
-        display.blit(font.render(line, True, color), position)
+        if isinstance(line, dict):
+            display.blit(font.render(line.get('text'), True, line.get('color', color)), position)
+        else:
+            display.blit(font.render(line, True, color), position)
+
         position = (position[0] + offset[0], position[1] + offset[1])
 
 
@@ -100,7 +75,18 @@ def pygame_save(display, path: str, name: str = None):
     thread = threading.Thread(target=lambda: pygame.image.save(display, os.path.join(path, name)))
     thread.start()
 
+
 # -------------------------------------------------------------------------------------------------
+# -- CARLA
+# -------------------------------------------------------------------------------------------------
+
+def get_client(address, port, timeout=2.0) -> carla.Client:
+    """Connects to the simulator.
+        @:returns a carla.Client instance if the CARLA simulator accepts the connection.
+    """
+    client: carla.Client = carla.Client(address, port)
+    client.set_timeout(timeout)
+    return client
 
 
 def random_blueprint(world: carla.World, actor_filter='vehicle.*', role_name='agent') -> carla.ActorBlueprint:
@@ -171,6 +157,14 @@ def spawn_actor(world: carla.World, blueprint: carla.ActorBlueprint, spawn_point
     return actor
 
 
+def get_blueprint(world: carla.World, actor_id: str) -> carla.ActorBlueprint:
+    return world.get_blueprint_library().find(actor_id)
+
+
+# -------------------------------------------------------------------------------------------------
+# -- Other
+# -------------------------------------------------------------------------------------------------
+
 def resize(image, size: (int, int), interpolation=cv2.INTER_CUBIC):
     """Resize the given image.
         :param image: a numpy array with shape (height, width, channels).
@@ -190,18 +184,6 @@ def scale(num, from_interval=(-1.0, +1.0), to_interval=(0.0, 7.0)) -> float:
     """
     x = np.interp(num, from_interval, to_interval)
     return float(round(x))
-
-
-def get_blueprint(world: carla.World, actor_id: str) -> carla.ActorBlueprint:
-    return world.get_blueprint_library().find(actor_id)
-
-
-def make_gif(path: str, name: str):
-    # TODO: use tdqm
-    with imageio.get_writer(os.path.join(path, name + '.gif'), mode='I') as writer:
-        for filename in os.listdir(path):
-            image = imageio.imread(filename)
-            writer.append_data(image)
 
 
 def save_agent(agent: Agent, agent_name: str, directory: str, separate_dir=True) -> str:
