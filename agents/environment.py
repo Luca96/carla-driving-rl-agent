@@ -20,7 +20,6 @@ MAX_RADIANS = 2.0 * math.pi
 MAX_SPEED = 150.0
 
 
-# TODO: think about sensors' callbacks
 class SynchronousCARLAEnvironment(Environment):
     """A TensorForce Environment for the CARLA driving simulator.
         - This environment is "synchronized" with the server, meaning that the server waits for a client tick.
@@ -134,7 +133,7 @@ class SynchronousCARLAEnvironment(Environment):
 
     def reward(self, actions, time_cost=-1.0, b=2.0, c=2.0, d=2.0):
         """Agent's reward function"""
-        # TODO: include a penalty for law compliance: exceeding the speed limit, red traffic light...
+        # TODO: include a penalty for law compliance: red traffic light...
 
         # Direction term: alignment of the vehicle's forward vector with the waypoint's forward vector
         speed = utils.speed(self.vehicle)
@@ -208,7 +207,7 @@ class SynchronousCARLAEnvironment(Environment):
 
         if agent is None:
             print('Using default agent "if available"...')
-            agent = self.default_agent()
+            agent = self.default_agent(max_episode_timesteps=max_episode_timesteps)
 
         try:
             if load_agent:
@@ -252,12 +251,12 @@ class SynchronousCARLAEnvironment(Environment):
     def default_sensors(self) -> dict:
         """Returns a predefined dict of sensors specifications"""
         return dict(imu=SensorSpecs.imu(),
-                    collision=SensorSpecs.collision_detector(),
+                    collision=SensorSpecs.collision_detector(callback=self.on_collision),
                     camera=SensorSpecs.rgb_camera(position='top',
                                                   image_size_x=self.image_shape[1], image_size_y=self.image_shape[0],
                                                   sensor_tick=1.0 / self.fps))
 
-    def default_agent(self) -> Agent:
+    def default_agent(self, **kwargs) -> Agent:
         """Returns a predefined agent for this environment"""
         raise NotImplementedError('Implement this to define your own default agent!')
 
@@ -414,6 +413,7 @@ class SynchronousCARLAEnvironment(Environment):
         if image.shape != self.image_shape:
             image = env_utils.resize(image, size=self.image_size)
 
+        # Normalize image's pixels value to -1, +1
         observation = dict(image=(2 * image - 255.0) / 255.0,
                            vehicle_features=self._get_vehicle_features(),
                            road_features=self._get_road_features(),
@@ -494,22 +494,7 @@ class SynchronousCARLAEnvironment(Environment):
     def _create_sensors(self):
         for name, args in self.sensors_spec.items():
             kwargs = args.copy()
-            sensor_type = kwargs.pop('type')
-
-            if sensor_type == 'sensor.other.collision':
-                sensor = CollisionSensor(parent_actor=self.vehicle)
-                sensor.add_callback(self.on_collision)
-
-            elif sensor_type == 'sensor.other.imu':
-                sensor = IMUSensor(parent_actor=self.vehicle)
-
-            elif sensor_type == 'sensor.camera.rgb':
-                sensor = RGBCameraSensor(parent_actor=self.vehicle, **kwargs)
-
-            elif sensor_type == 'sensor.camera.semantic_segmentation':
-                sensor = SemanticCameraSensor(parent_actor=self.vehicle, **kwargs)
-            else:
-                raise ValueError(f'Cannot create sensor `{sensor_type}`.')
+            sensor = Sensor.create(sensor_type=kwargs.pop('type'), parent_actor=self.vehicle, **kwargs)
 
             if name == 'world':
                 raise ValueError(f'Cannot name a sensor `world` because is reserved.')

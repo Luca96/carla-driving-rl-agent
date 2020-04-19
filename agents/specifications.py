@@ -185,10 +185,15 @@ class Specifications:
 
     @staticmethod
     def update(unit: str, batch_size: int, frequency=None, start: int = None):
-        return dict(unit=unit,
-                    batch_size=batch_size,
-                    frequency=frequency if frequency else batch_size,
-                    start=start if start else batch_size)
+        update_spec = dict(unit=unit, batch_size=batch_size)
+
+        if frequency is not None:
+            update_spec['frequency'] = frequency
+
+        if start is not None:
+            update_spec['start'] = start
+
+        return update_spec
 
     @staticmethod
     def reward_estimation(horizon: int, discount=1.0, estimate_horizon=False, estimate_actions=False,
@@ -200,12 +205,18 @@ class Specifications:
                     estimate_advantage=estimate_advantage)
 
     @staticmethod
-    def policy(network: dict, distributions: str = None, temperature=0.0, infer_states_value=False):
-        return dict(type='parametrized_distributions',
-                    infer_states_value=infer_states_value,
-                    distributions=dict(type=distributions) if isinstance(distributions, str) else None,
-                    network=network,
-                    temperature=temperature)
+    def policy(network: dict, distributions: str = None, temperature: Optional[float] = None, infer_states_value=False):
+        policy_spec = dict(type='parametrized_distributions',
+                           infer_states_value=infer_states_value,
+                           network=network)
+
+        if distributions is not None:
+            policy_spec['distributions'] = dict(type=distributions)
+
+        if temperature is not None:
+            policy_spec['temperature'] = temperature
+
+        return policy_spec
 
     @staticmethod
     def agent_network(conv: dict, rnn: dict = None, final: dict = None, dropout=0.2):
@@ -263,9 +274,8 @@ class Specifications:
                                    dropout=dropout,
                                    output='image_out'),
 
-            [dict(type='register', tensor='vehicle_features')],
-            [dict(type='register', tensor='road_features')],
-            [dict(type='register', tensor='previous_actions')]],
+            [dict(type='retrieve', tensors=['vehicle_features', 'road_features', 'previous_actions']),
+             dict(type='register', tensor='features_out')]],
 
             layers=final.get('layers', 2),
             activation=final.get('activation', 'none'),
@@ -342,17 +352,20 @@ class Specifications:
         # TODO: augment agent with an RNN
         # TODO: also stack 4 input (agent_v3?)
         # TODO: use separable-convolutions
-        # TODO: reduce input size of image observation, e.g. 84x84, 105x75
+        # TODO: reduce input size of image observation, e.g. 84x84, 75x105, 105x140, 150x200
         # TODO: use control instead of previous actions?
-
-        # (160, 120) -> ~1.5, (140, 105) -> ~2, (100, 75) -> 4
-        # preprocessing=dict(image=[dict(type='image', width=140, height=105, grayscale=True),  # 100, 75
-        #                           dict(type='deltafier'),
-        #                           dict(type='sequence', length=4)],
-        #                    vehicle_features=[dict(type='deltafier'),
-        #                                      dict(type='sequence', length=4)],
-        #                    road_features=[dict(type='deltafier'),
-        #                                   dict(type='sequence', length=4)],
-        #                    previous_actions=[dict(type='deltafier'),
-        #                                      dict(type='sequence', length=4)]),
         pass
+
+    @staticmethod
+    def my_preprocessing(image_shape=(105, 140, 1), normalization=False, stack_images=4):
+        img_prep = [dict(type='image', width=image_shape[1], height=image_shape[0], grayscale=image_shape[2] == 1)]
+
+        if normalization:
+            img_prep.append(dict(type='instance_normalization'))
+
+        if stack_images > 0:
+            img_prep.append(dict(type='sequence', length=stack_images, axis=-1, concatenate=True))  # depth concat
+
+        return dict(image=img_prep,
+                    vehicle_features=dict(type='deltafier'),
+                    road_features=dict(type='deltafier'))

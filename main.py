@@ -14,20 +14,6 @@ logger.setLevel(logging.ERROR)
 # TODO [project-level]: use os.path.join for directory strings!!
 # TODO [project-level]: use logger and different logging levels for debug, warnings, etc.!!
 
-def decay(value: float, rate: float, steps: int):
-    for _ in range(steps):
-        value *= rate
-
-    return value
-
-
-def run_all_tests():
-    for x in dir(tests):
-        if 'test' in x:
-            test = getattr(tests, x)
-            print(f'Running test: {x}')
-            test()
-
 
 if __name__ == '__main__':
     # TODO: to make tensorflow 2.x works comment line 29 and 30 in
@@ -39,8 +25,10 @@ if __name__ == '__main__':
 
     # Test cases:
     # tests.test_carla_env()
+    # tests.test_baseline_env()
     # tests.test_sequence_layer()
     # tests.test_pretrain_env()
-    tests.test_keyboard_agent()
+    # tests.test_keyboard_agent()
+    tests.test_route_follow_segmentation(num_episodes=10, num_timesteps=256)
 
     pygame.quit()

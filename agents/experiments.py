@@ -6,7 +6,7 @@ import numpy as np
 
 from tensorforce import Agent
 
-from agents import Agents, SensorSpecs
+from agents import Agents, SensorSpecs, Specs
 from agents.environment import SynchronousCARLAEnvironment
 from agents import env_utils
 from tools import utils
@@ -16,7 +16,6 @@ from tools import utils
 # -- Baseline Experiments
 # -------------------------------------------------------------------------------------------------
 
-# TODO: bug here!
 class CARLABaselineExperiment(SynchronousCARLAEnvironment):
     ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = np.array([0., 0., 0.])
@@ -29,11 +28,11 @@ class CARLABaselineExperiment(SynchronousCARLAEnvironment):
                     collision=SensorSpecs.collision_detector(),
                     camera=SensorSpecs.rgb_camera(position='front',
                                                   attachment_type='Rigid',
-                                                  image_size_x=self.window_size[1], image_size_y=self.window_size[0],
+                                                  image_size_x=self.window_size[0], image_size_y=self.window_size[1],
                                                   sensor_tick=1.0 / self.fps))
 
-    def default_agent(self) -> Agent:
-        return Agents.baseline(self)
+    def default_agent(self, **kwargs) -> Agent:
+        return Agents.baseline(self, **kwargs)
 
     def reward(self, actions, time_cost=-1.0, b=-1000.0, c=2.0, d=2.0):
         # Direction term: alignment of the vehicle's heading direction with the waypoint's forward vector
@@ -125,6 +124,7 @@ class CARLABaselineExperiment(SynchronousCARLAEnvironment):
 
 class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
     """Base class (with basic behaviour) for CARLA Experiments"""
+
     # skill, throttle/brake intensity, steer
     ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0])
@@ -138,12 +138,23 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
     VEHICLE_FEATURES_SPEC = dict(type='float', shape=(17,))
 
     def default_sensors(self) -> dict:
-        return dict(imu=SensorSpecs.imu(),
-                    collision=SensorSpecs.collision_detector(),
-                    camera=SensorSpecs.rgb_camera(position='front',
-                                                  attachment_type='Rigid',
-                                                  image_size_x=self.window_size[1], image_size_y=self.window_size[0],
-                                                  sensor_tick=1.0 / self.fps))
+        sensors = super().default_sensors()
+        SensorSpecs.set(sensors['camera'], position='on-top2', attachment_type='Rigid')
+        return sensors
+
+    def default_agent(self, max_episode_timesteps: int, batch_size=256) -> Agent:
+        policy_spec = dict(network=Specs.agent_network_v2(conv=dict(activation='leaky-relu'),
+                                                          final=dict(layers=2, units=256)),
+                           distributions='gaussian')
+
+        critic_spec = policy_spec.copy()
+        critic_spec['temperature'] = 0.5
+        critic_spec['optimizer'] = dict(type='synchronization', sync_frequency=1, update_weight=1.0)
+
+        return Agents.ppo_like(self, max_episode_timesteps, policy=policy_spec, critic=critic_spec,
+                               batch_size=batch_size,
+                               preprocessing=Specs.my_preprocessing(image_shape=(75, 105, 1), stack_images=10),
+                               summarizer=Specs.summarizer(frequency=batch_size))
 
     def get_skill_name(self):
         skill = env_utils.scale(self.prev_actions[0])
@@ -209,6 +220,7 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
         # TODO: substitute accelerometer with vehicle.get_acceleration()? (3D vector)
         # TODO: consider adding 'vehicle.get_angular_velocity()' (3D vector)
         # TODO: substitute speed with 'vehicle.get_velocity()'? (3D vector)
+        # TODO: add vehicle's light state
 
         return [math.log2(1.0 + utils.speed(self.vehicle)),  # speed
                 # Vehicle control:
@@ -242,7 +254,6 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
         else:
             speed_text = 'Speed %.1f km/h' % speed
 
-        # TODO: add traffic light state
         return ['%d FPS' % self.clock.get_fps(),
                 '',
                 'Throttle: %.2f' % self.control.throttle,
@@ -261,17 +272,49 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
                 'Collision penalty: %.2f' % self.collision_penalty]
 
 
+class CARLASegmentationExperiment(CARLARouteFollowExperiment):
+
+    def default_sensors(self) -> dict:
+        sensors = super().default_sensors()
+        sensors['camera'] = SensorSpecs.segmentation_camera(position='on-top2',
+                                                            attachment_type='Rigid',
+                                                            image_size_x=self.image_shape[1],
+                                                            image_size_y=self.image_shape[0],
+                                                            sensor_tick=1.0 / self.fps)
+        return sensors
+
+    def on_collision(self, event: carla.CollisionEvent, penalty=1000.0, max_impulse=400.0):
+        actor_type = event.other_actor.type_id
+        print(f'Collision with {actor_type}')
+
+        if 'pedestrian' in actor_type:
+            self.collision_penalty += penalty
+            self.should_terminate = True
+        elif 'vehicle' in actor_type:
+            self.collision_penalty += penalty / 2.0
+            self.should_terminate = True
+        else:
+            self.collision_penalty += penalty / 10.0
+            self.should_terminate = False
+
+
+class CARLAActionPenaltyExperiment(CARLARouteFollowExperiment):
+    pass
+
+
 class CARLAPlayEnvironment(CARLARouteFollowExperiment):
     ACTIONS_SPEC = dict(type='float', shape=(5,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = [0.0, 0.0, 0.0, 0.0, 0.0]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        print('Controls: (W, or UP) accelerate, (A or LEFT) steer left, (D or RIGHT) steer right, (S or DOWN) brake, '
+              '(Q) toggle reverse, (SPACE) hand-brake, (ESC) quit.')
+
     def default_sensors(self) -> dict:
-        return dict(imu=SensorSpecs.imu(),
-                    collision=SensorSpecs.collision_detector(),
-                    camera=SensorSpecs.rgb_camera(position='top',
-                                                  attachment_type='Rigid',
-                                                  image_size_x=self.window_size[0], image_size_y=self.window_size[1],
-                                                  sensor_tick=1.0 / self.fps))
+        sensors = super().default_sensors()
+        sensors['camera']['transform'] = SensorSpecs.get_position('top')
+        return sensors
 
     def default_agent(self) -> Agent:
         return Agents.dummy.keyboard(self)
@@ -284,8 +327,9 @@ class CARLAPlayEnvironment(CARLARouteFollowExperiment):
         self.control.hand_brake = bool(actions[4])
 
     def on_pre_world_step(self):
-        self.route.draw_route(self.world.debug, life_time=1.0 / self.fps)
-        self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)
+        if self.should_debug:
+            self.route.draw_route(self.world.debug, life_time=1.0 / self.fps)
+            self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)
 
 
 # -------------------------------------------------------------------------------------------------

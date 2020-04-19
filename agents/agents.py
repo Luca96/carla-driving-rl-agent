@@ -2,6 +2,7 @@
 import carla
 import pygame
 
+from typing import Optional
 from pygame.constants import K_q, K_UP, K_w, K_LEFT, K_a, K_RIGHT, K_d, K_DOWN, K_s, K_SPACE, K_ESCAPE, KMOD_CTRL
 
 from tensorforce import Agent
@@ -31,8 +32,13 @@ class Agents:
         pass
 
     @staticmethod
-    def baseline(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps=512, batch_size=256, update_frequency=64,
-                 horizon=200, discount=0.997, exploration=0.0, entropy=0.05, **kwargs) -> Agent:
+    def baseline(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps=512, batch_size=256, exploration=0.0,
+                 update_frequency: Optional[int] = None, horizon: Optional[int] = None, discount=0.997, entropy=0.05,
+                 **kwargs) -> Agent:
+        horizon = horizon or (batch_size - 1)
+        assert horizon < batch_size
+        update_frequency = update_frequency or batch_size
+
         return Agent.create(agent='tensorforce',
                             environment=carla_env,
                             max_episode_timesteps=max_episode_timesteps,
@@ -54,8 +60,11 @@ class Agents:
 
     @staticmethod
     def evolutionary(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size=256, num_samples=6,
-                     update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1, units=(256, 128),
-                     layers=(2, 2), temperature=(0.9, 0.7), horizon=100, width=140, height=105,  **kwargs) -> Agent:
+                     update_frequency: Optional[int] = None, decay_steps=768, filters=36, decay=0.995, lr=0.1,
+                     units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7), horizon: Optional[int] = None, width=140,
+                     height=105,  **kwargs) -> Agent:
+        horizon = horizon or (batch_size - 1)
+        assert horizon < batch_size
 
         policy_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
                                          final=dict(layers=layers[0], units=units[0], activation='leaky-relu'))
@@ -78,7 +87,7 @@ class Agents:
                                              temperature=temperature[0]),
 
                                  batch_size=batch_size,
-                                 update_frequency=update_frequency,
+                                 update_frequency=update_frequency or batch_size,
 
                                  critic=dict(network=critic_net,
                                              optimizer=dict(type='adam', learning_rate=3e-3),
@@ -96,8 +105,13 @@ class Agents:
 
     @staticmethod
     def criticless(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size=256, num_samples=6,
-                   update_frequency=256, decay_steps=768, filters=36, decay=0.995, lr=0.1, units=256, layers=2,
-                   temperature=0.9, horizon=100, width=140, height=105, discount=1.0,  **kwargs) -> Agent:
+                   update_frequency: Optional[int] = None, decay_steps=768, filters=36, decay=0.995, lr=0.1, units=256,
+                   layers=2, temperature=0.9, horizon: Optional[int] = None, width=140, height=105, discount=1.0,
+                   **kwargs) -> Agent:
+        horizon = horizon or (batch_size - 1)
+        assert horizon < batch_size
+        update_frequency = update_frequency or batch_size
+
         policy_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
                                          final=dict(layers=layers, units=units, activation='leaky-relu'))
 
@@ -130,6 +144,48 @@ class Agents:
 
                             entropy_regularization=Specs.exp_decay(steps=decay_steps, unit='updates', initial_value=lr,
                                                                    rate=decay),
+                            **kwargs)
+
+    @staticmethod
+    def ppo_like(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict,
+                 critic: Optional[dict] = None, batch_size=64, update_frequency: Optional[int] = None, huber_loss=0.0,
+                 discount=1.0, horizon: Optional[int] = None, estimate_terminal=False, **kwargs) -> Agent:
+        horizon = horizon or (batch_size - 1)
+        assert horizon < batch_size
+        update_frequency = update_frequency or batch_size
+
+        if critic is None:
+            critic_policy = critic_optimizer = critic_objective = None
+        else:
+            critic_policy = dict(network=critic.get('network', None))
+            critic_optimizer = critic.get('optimizer', dict(type='adam', learning_rate=3e-3))
+            critic_objective = Specs.obj.value(value='state', huber_loss=huber_loss)
+
+        return Agent.create(agent='tensorforce',
+                            environment=carla_env,
+                            max_episode_timesteps=max_episode_timesteps,
+                            update=Specs.update(unit='timesteps', batch_size=batch_size, frequency=update_frequency),
+
+                            # Policy
+                            policy=Specs.policy(network=policy.get('network'),
+                                                distributions=policy.get('distributions', None),
+                                                temperature=policy.get('temperature', 1.0),
+                                                infer_states_value=policy.get('infer_states', False)),
+                            memory=dict(type='recent'),
+                            optimizer=policy.get('optimizer', dict(type='adam', learning_rate=3e-4)),
+                            objective=Specs.obj.policy_gradient(clipping_value=0.2, ratio_based=True),
+
+                            # Critic
+                            baseline_policy=critic_policy,
+                            baseline_optimizer=critic_optimizer,
+                            baseline_objective=critic_objective,
+
+                            # Reward
+                            reward_estimation=dict(discount=discount,
+                                                   horizon=horizon,
+                                                   estimate_horizon=False if critic is None else 'early',
+                                                   estimate_terminal=estimate_terminal,
+                                                   estimate_advantage=True),
                             **kwargs)
 
 
@@ -227,7 +283,7 @@ class KeyboardAgent(DummyAgent):
         - in "pretrain mode" a human controls the agent with a keyboard and records its actions plus the states.
     """
 
-    # TODO: only 'play' mode works, implement 'record' mode
+    # TODO: implement 'record' mode
     def __init__(self, env: SynchronousCARLAEnvironment, fps=30.0, mode='play'):
         self.env = env
         self.mode = mode

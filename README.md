@@ -1,4 +1,4 @@
-# Instructions
+## Instructions
 Before running any code from this repo you have to:
 1. **Install CARLA Simulator 0.9.8**: [carla.readthedocs.io/en/latest/start_quickstart/](https://carla.readthedocs.io/en/latest/start_quickstart/)
 2. **Install CARLA's Python bindings**: 
@@ -12,8 +12,11 @@ Before running any code from this repo you have to:
             version='0.9.8',
             py_modules=['carla']) 
       ```
-    * Install via pip: `pip install -e ~/Carla/PythonAPI/carla/dist/carla-0.9.8-py3.5-YOUR_OS-x86_64`
+    * Install via pip: `pip install -e ~/CARLA_0.9.8/PythonAPI/carla/dist/carla-0.9.8-py3.5-YOUR_OS-x86_64`
 3. **Clone this repo**
 4. **Run the CARLA Simulator**: `your-path-to/CARLA_0.9.8/./CarlaUE4.sh`
     * To use less resources add these flags: `-windowed -ResX=8 -ResY=8 --quality-level=Low`
 5. Enjoy!
+
+## Examples
+...

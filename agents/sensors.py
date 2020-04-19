@@ -5,20 +5,28 @@ import numpy as np
 import carla
 
 
-# TODO: add support for other sensors: lidar, radar, depth camera etc.
 class Sensor(object):
     """Base class for sensor wrappers."""
     def __init__(self, parent_actor: carla.Actor, transform=carla.Transform(), attachment_type=None,
                  attributes: dict = None):
         self.parent = parent_actor
         self.world = self.parent.get_world()
+        self.attributes = attributes or dict()
         self.event_callbacks = []
 
+        # Look for callback(s)
+        if 'callback' in self.attributes:
+            self.event_callbacks.append(self.attributes.pop('callback'))
+
+        elif 'callbacks' in self.attributes:
+            for callback in self.attributes.pop('callbacks'):
+                self.event_callbacks.append(callback)
+
         # detector-sensors retrieve data only when triggered (not at each tick!)
-        self.sensor, self.is_detector = self._spawn(transform, attachment_type, attributes or dict())
+        self.sensor, self.is_detector = self._spawn(transform, attachment_type)
 
     @property
-    def name(self):
+    def name(self) -> str:
         raise NotImplementedError
 
     def set_parent_actor(self, actor: carla.Actor):
@@ -32,27 +40,38 @@ class Sensor(object):
         self.event_callbacks.clear()
 
     @staticmethod
-    def create(sensor_name, **kwargs):
-        if sensor_name in ['collision', 'collision_detector', 'collision_sensor']:
-            return CollisionSensor(**kwargs)
+    def create(sensor_type, **kwargs):
+        if sensor_type == 'sensor.other.collision':
+            return CollisionDetector(**kwargs)
 
-        elif sensor_name in ['lane', 'lane_sensor', 'lane_invasion_sensor']:
+        elif sensor_type == 'sensor.other.lane_invasion':
             return LaneInvasionSensor(**kwargs)
 
-        elif sensor_name in ['gnss', 'gnss_sensor']:
+        elif sensor_type == 'sensor.other.gnss':
             return GnssSensor(**kwargs)
 
-        elif sensor_name in ['imu', 'imu_sensor']:
+        elif sensor_type == 'sensor.other.imu':
             return IMUSensor(**kwargs)
 
-        elif sensor_name in ['camera', 'camera.rgb', 'camera_sensor', 'rgb_camera']:
+        elif sensor_type == 'sensor.camera.rgb':
             return RGBCameraSensor(**kwargs)
 
-        elif sensor_name in ['semantic_camera', 'semantic_segmentation_camera', 'semantic_camera_sensor']:
+        elif sensor_type == 'sensor.camera.semantic_segmentation':
             return SemanticCameraSensor(**kwargs)
 
+        elif sensor_type == 'sensor.camera.depth':
+            return DepthCameraSensor(**kwargs)
+
+        elif sensor_type == 'sensor.other.obstacle':
+            return ObstacleDetector(**kwargs)
+
+        elif sensor_type == 'sensor.lidar.ray_cast':
+            return LidarSensor(**kwargs)
+
+        elif sensor_type == 'sensor.other.radar':
+            return RadarSensor(**kwargs)
         else:
-            raise ValueError(f'Cannot create sensor `{sensor_name}`')
+            raise ValueError(f'String `{sensor_type}` does not denote a valid sensor!')
 
     def start(self):
         """Start listening for events"""
@@ -65,14 +84,14 @@ class Sensor(object):
         """Stop listening for events"""
         self.sensor.stop()
 
-    def _spawn(self, transform, attachment_type=None, attributes: dict = None):
+    def _spawn(self, transform, attachment_type=None):
         """Spawns itself within a carla.World."""
         if attachment_type is None:
             attachment_type = carla.AttachmentType.Rigid
 
         sensor_bp: carla.ActorBlueprint = self.world.get_blueprint_library().find(self.name)
 
-        for attr, value in attributes.items():
+        for attr, value in self.attributes.items():
             if sensor_bp.has_attribute(attr):
                 sensor_bp.set_attribute(attr, str(value))
             else:
@@ -140,10 +159,10 @@ class SemanticCameraSensor(CameraSensor):
 
 
 # -------------------------------------------------------------------------------------------------
-# -- Collision Sensor
+# -- Detector Sensors
 # -------------------------------------------------------------------------------------------------
 
-class CollisionSensor(Sensor):
+class CollisionDetector(Sensor):
     def __init__(self, parent_actor, **kwargs):
         super().__init__(parent_actor, **kwargs)
 
@@ -151,10 +170,6 @@ class CollisionSensor(Sensor):
     def name(self):
         return 'sensor.other.collision'
 
-
-# -------------------------------------------------------------------------------------------------
-# -- Lane-Invasion Sensor
-# -------------------------------------------------------------------------------------------------
 
 class LaneInvasionSensor(Sensor):
     def __init__(self, parent_actor, **kwargs):
@@ -165,13 +180,47 @@ class LaneInvasionSensor(Sensor):
         return 'sensor.other.lane_invasion'
 
 
+class ObstacleDetector(Sensor):
+    def __init__(self, parent_actor, **kwargs):
+        super().__init__(parent_actor, **kwargs)
+
+    @property
+    def name(self):
+        return 'sensor.other.obstacle'
+
+
 # -------------------------------------------------------------------------------------------------
-# -- GNSS Sensor
+# -- Other Sensors
 # -------------------------------------------------------------------------------------------------
 
+class LidarSensor(Sensor):
+    def __init__(self, parent_actor, **kwargs):
+        super().__init__(parent_actor, **kwargs)
+
+    @property
+    def name(self):
+        return 'sensor.lidar.ray_cast'
+
+
+class RadarSensor(Sensor):
+    def __init__(self, parent_actor, **kwargs):
+        super().__init__(parent_actor, **kwargs)
+
+    @property
+    def name(self):
+        return 'sensor.other.radar'
+
+    @staticmethod
+    def convert(radar_measurement: carla.RadarMeasurement):
+        """Converts a carla.RadarMeasurement into a numpy array [[velocity, altitude, azimuth, depth]]"""
+        points = np.frombuffer(radar_measurement.raw_data, dtype=np.dtype('f4'))
+        points = np.reshape(points, (len(radar_measurement), 4))
+        return points
+
+
 class GnssSensor(Sensor):
-    def __init__(self, parent_actor, transform=carla.Transform(carla.Location(x=1.0, z=2.8))):
-        super().__init__(parent_actor, transform=transform)
+    def __init__(self, parent_actor, transform=carla.Transform(carla.Location(x=1.0, z=2.8)), **kwargs):
+        super().__init__(parent_actor, transform=transform, **kwargs)
         self.lat = 0.0
         self.lon = 0.0
 
@@ -190,13 +239,9 @@ class GnssSensor(Sensor):
         self.lon = None
 
 
-# -------------------------------------------------------------------------------------------------
-# -- IMU Sensor
-# -------------------------------------------------------------------------------------------------
-
 class IMUSensor(Sensor):
-    def __init__(self, parent_actor):
-        super().__init__(parent_actor)
+    def __init__(self, parent_actor, **kwargs):
+        super().__init__(parent_actor, **kwargs)
         self.accelerometer = (0.0, 0.0, 0.0)
         self.gyroscope = (0.0, 0.0, 0.0)
         self.compass = 0.0
@@ -244,7 +289,7 @@ class SensorSpecs(object):
                        None: carla.ColorConverter.Raw}
 
     @staticmethod
-    def _get_position(position: str = None) -> carla.Transform:
+    def get_position(position: str = None) -> carla.Transform:
         if position == 'top':
             return carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0))
         elif position == 'top-view':
@@ -253,15 +298,32 @@ class SensorSpecs(object):
             return carla.Transform(carla.Location(x=1.5, z=1.8))
         elif position == 'on-top':
             return carla.Transform(carla.Location(x=-0.9, y=0.0, z=2.2))
+        elif position == 'on-top2':
+            return carla.Transform(carla.Location(x=0.0, y=0.0, z=2.2))
         else:
             return carla.Transform()
+
+    @staticmethod
+    def set(sensor_spec: dict, **kwargs):
+        for key, value in kwargs.items():
+            if key == 'position':
+                sensor_spec['transform'] = SensorSpecs.get_position(value)
+            elif key == 'attachment_type':
+                sensor_spec[key] = SensorSpecs.ATTACHMENT_TYPE[value]
+            elif key == 'color_converter':
+                sensor_spec[key] = SensorSpecs.COLOR_CONVERTER[value]
+
+    @staticmethod
+    def set_color_converter(camera_spec: dict, color_converter: str = None):
+        camera_spec['color_converter'] = SensorSpecs.COLOR_CONVERTER[color_converter]
+        return SensorSpecs
 
     @staticmethod
     def camera(kind: str, transform: carla.Transform = None, position: str = None, attachment_type=None,
                color_converter=None, **kwargs) -> dict:
         assert kind in ['rgb', 'depth', 'semantic_segmentation']
         return dict(type='sensor.camera.' + kind,
-                    transform=transform or SensorSpecs._get_position(position),
+                    transform=transform or SensorSpecs.get_position(position),
                     attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
                     color_converter=SensorSpecs.COLOR_CONVERTER[color_converter],
                     attributes=kwargs)
@@ -284,9 +346,9 @@ class SensorSpecs(object):
     @staticmethod
     def detector(kind: str, transform: carla.Transform = None, position: str = None, attachment_type=None,
                  **kwargs) -> dict:
-        assert kind in ['collision', 'lane', 'obstacle']
+        assert kind in ['collision', 'lane_invasion', 'obstacle']
         return dict(type='sensor.other.' + kind,
-                    transform=transform or SensorSpecs._get_position(position),
+                    transform=transform or SensorSpecs.get_position(position),
                     attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
                     attributes=kwargs)
 
@@ -296,7 +358,7 @@ class SensorSpecs(object):
 
     @staticmethod
     def lane_detector(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
-        return SensorSpecs.detector('lane', transform, position, attachment_type, **kwargs)
+        return SensorSpecs.detector('lane_invasion', transform, position, attachment_type, **kwargs)
 
     @staticmethod
     def obstacle_detector(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
@@ -304,11 +366,22 @@ class SensorSpecs(object):
 
     @staticmethod
     def other(kind: str, transform: carla.Transform = None, position: str = None, attachment_type=None, **kwargs) -> dict:
-        assert kind in ['imu', 'gnss']  # TODO: add 'lidar' and 'radar'
+        assert kind in ['imu', 'gnss', 'radar']
         return dict(type='sensor.other.' + kind,
-                    transform=transform or SensorSpecs._get_position(position),
+                    transform=transform or SensorSpecs.get_position(position),
                     attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
                     attributes=kwargs)
+
+    @staticmethod
+    def lidar(transform: carla.Transform = None, position: str = None, attachment_type=None, **kwargs) -> dict:
+        return dict(type='sensor.lidar.ray_cast',
+                    transform=transform or SensorSpecs.get_position(position),
+                    attachment_type=SensorSpecs.ATTACHMENT_TYPE[attachment_type],
+                    attributes=kwargs)
+
+    @staticmethod
+    def radar(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
+        return SensorSpecs.other('radar', transform, position, attachment_type, **kwargs)
 
     @staticmethod
     def imu(transform: carla.Transform = None, position: str = None, attachment_type='Rigid', **kwargs):
