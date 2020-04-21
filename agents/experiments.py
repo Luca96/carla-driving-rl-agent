@@ -245,7 +245,7 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
                 # Compass:
                 math.radians(imu_sensor.compass)]
 
-    def _get_debug_text(self, actions):
+    def debug_text(self, actions):
         speed_limit = self.vehicle.get_speed_limit()
         speed = utils.speed(self.vehicle)
 
@@ -302,6 +302,7 @@ class CARLAActionPenaltyExperiment(CARLARouteFollowExperiment):
     pass
 
 
+# TODO: override 'train'
 class CARLAPlayEnvironment(CARLARouteFollowExperiment):
     ACTIONS_SPEC = dict(type='float', shape=(5,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = [0.0, 0.0, 0.0, 0.0, 0.0]
@@ -316,7 +317,7 @@ class CARLAPlayEnvironment(CARLARouteFollowExperiment):
         sensors['camera']['transform'] = SensorSpecs.get_position('top')
         return sensors
 
-    def default_agent(self) -> Agent:
+    def default_agent(self, **kwargs) -> Agent:
         return Agents.dummy.keyboard(self)
 
     def actions_to_control(self, actions):
@@ -326,7 +327,7 @@ class CARLAPlayEnvironment(CARLARouteFollowExperiment):
         self.control.reverse = bool(actions[3])
         self.control.hand_brake = bool(actions[4])
 
-    def on_pre_world_step(self):
+    def before_world_step(self):
         if self.should_debug:
             self.route.draw_route(self.world.debug, life_time=1.0 / self.fps)
             self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)

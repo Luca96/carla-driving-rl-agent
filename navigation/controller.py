@@ -17,7 +17,7 @@ import carla
 from tools.misc import get_speed
 
 
-class VehiclePIDController():
+class VehiclePIDController:
     """
     VehiclePIDController is the combination of two PID controllers (lateral and longitudinal) to perform the
     low level control a vehicle from client side

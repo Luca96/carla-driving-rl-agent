@@ -2,15 +2,18 @@
 
 import re
 import time
+import math
+import carla
+import numpy as np
 
 from functools import wraps
-from agents.sensors import *
 
 # Globals:
 
 find_weather_regex = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
 cc = carla.ColorConverter
 Attachment = carla.AttachmentType
+epsilon = np.finfo(np.float32).eps
 
 
 def find_weather_presets():
@@ -24,39 +27,39 @@ def get_actor_display_name(actor, truncate=250):
     return (name[:truncate - 1] + u'\u2026') if len(name) > truncate else name
 
 
-def l2_norm(location1, location2):
+def l2_norm(location1: carla.Location, location2: carla.Location) -> float:
     """Computes the Euclidean distance between two carla.Location objects."""
-    return math.sqrt((location1.x - location2.x) ** 2 + (location1.y - location2.y) ** 2)
+    dx = location1.x - location2.x
+    dy = location1.y - location2.y
+    dz = location1.z - location2.z
+    return math.sqrt(dx ** 2 + dy ** 2 + dz ** 2) + epsilon
 
 
-def unit_vector(location_1, location_2):
-    """
-    Returns the unit vector from location_1 to location_2.
-        @:arg: location_1, location_2:   carla.Location objects
-    """
-    x = location_2.x - location_1.x
-    y = location_2.y - location_1.y
-    z = location_2.z - location_1.z
-    norm = np.linalg.norm([x, y, z]) + np.finfo(float).eps
+def unit_vector(location1: carla.Location, location2: carla.Location) -> list:
+    """Returns the unit vector from location1 to location2."""
+    x = location2.x - location1.x
+    y = location2.y - location1.y
+    z = location2.z - location1.z
+    norm = np.linalg.norm([x, y, z]) + epsilon
 
     return [x / norm, y / norm, z / norm]
 
 
-def vector_norm(vec: carla.Vector3D):
+def vector_norm(vec: carla.Vector3D) -> float:
     """Returns the norm/magnitude (a scalar) of the given 3D vector."""
     return math.sqrt(vec.x**2 + vec.y**2 + vec.z**2)
 
 
-def speed(actor: carla.Actor):
+def speed(actor: carla.Actor) -> float:
     """Returns the speed of the given actor in km/h."""
     return 3.6 * vector_norm(actor.get_velocity())
 
 
-def dot_product(a: carla.Vector3D, b: carla.Vector3D):
+def dot_product(a: carla.Vector3D, b: carla.Vector3D) -> float:
     return a.x * b.x + a.y * b.y + a.z * b.z
 
 
-def cosine_similarity(a: carla.Vector3D, b: carla.Vector3D):
+def cosine_similarity(a: carla.Vector3D, b: carla.Vector3D) -> float:
     """-1: opposite vectors (pointing in the opposite direction),
         0: orthogonal,
         1: exactly the same (pointing in the same direction)
@@ -198,7 +201,7 @@ def draw_bounding_box(world):
         actor = world.get_actor(actor_snapshot.id)
 
         if actor.type_id == 'traffic.traffic_light':
-            actor_transform = actor_snapshot._get_transform()
+            actor_transform = actor_snapshot.get_transform()
             bounding_box = carla.BoundingBox(actor_transform.location, carla.Vector3D(0.5, 0.5, 2))
             debug.draw_box(bounding_box, actor_transform.rotation, 0.05, Colors.red, 0)
 

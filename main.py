@@ -5,6 +5,7 @@ import tensorflow as tf
 
 import tests
 
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logger = tf.get_logger()
 logger.setLevel(logging.ERROR)
@@ -28,7 +29,7 @@ if __name__ == '__main__':
     # tests.test_baseline_env()
     # tests.test_sequence_layer()
     # tests.test_pretrain_env()
-    # tests.test_keyboard_agent()
-    tests.test_route_follow_segmentation(num_episodes=10, num_timesteps=256)
+    tests.test_keyboard_agent()
+    # tests.test_route_follow_segmentation(num_episodes=10, num_timesteps=256)
 
     pygame.quit()

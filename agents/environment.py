@@ -1,6 +1,7 @@
-"""Contains various environments build to work with CARLA simulator."""
-
+import math
+import carla
 import pygame
+import numpy as np
 
 from typing import Optional
 from datetime import datetime
@@ -8,7 +9,7 @@ from datetime import datetime
 from tensorforce import Environment, Agent
 
 from agents import env_utils
-from agents.sensors import *
+from agents.sensors import Sensor, SensorSpecs
 
 from navigation import Route, RoutePlanner
 
@@ -16,18 +17,45 @@ from tools import misc, utils
 from tools.utils import WAYPOINT_DICT, profile
 from tools.synchronous_mode import CARLASyncContext
 
-MAX_RADIANS = 2.0 * math.pi
-MAX_SPEED = 150.0
-
 
 class SynchronousCARLAEnvironment(Environment):
-    """A TensorForce Environment for the CARLA driving simulator.
-        - This environment is "synchronized" with the server, meaning that the server waits for a client tick.
+    """A TensorForce Environment for the [CARLA driving simulator](https://github.com/carla-simulator/carla).
+        - This environment is "synchronized" with the server, meaning that the server waits for a client tick. For a
+          detailed explanation of this refer to https://carla.readthedocs.io/en/latest/adv_synchrony_timestep/.
         - Subclass to customize the behaviour of states, actions, sensors, reward function, agent, training loop, etc.
 
        Requires, you to:
-        - Download and Install the CARLA simulator,
-        - Run the CARLA simulator from command line.
+        - Install `pygame`, `opencv`
+        - Install the CARLA simulator (version 0.9.8): https://carla.readthedocs.io/en/latest/start_quickstart
+        - Install CARLA's Python bindings:
+        --> `cd your-path-to/CARLA_0.9.8/PythonAPI/carla/dist/`
+        --> Extract `carla-0.9.8-py3.5-YOUR_OS-x86_64.egg` where `YOUR_OS` depends on your OS, i.e. `linux` or `windows`
+        --> Create a `setup.py` file within the extracted folder and write the following:
+          ```python
+          from distutils.core import setup
+
+          setup(name='carla',
+                version='0.9.8',
+                py_modules=['carla'])
+          ```
+        --> Install via pip: `pip install -e ~/CARLA_0.9.8/PythonAPI/carla/dist/carla-0.9.8-py3.5-YOUR_OS-x86_64`
+        - Run the CARLA simulator from command line: `your-path-to/CARLA_0.9.8/./CarlaUE4.sh` or (CarlaUE4.exe)
+        --> To use less resources add these flags: `-windowed -ResX=8 -ResY=8 --quality-level=Low`
+
+        Example usage:
+            # Instantiate the environment (run the CARLA simulator before doing this!)
+            env = SynchronousCARLAEnvironment(debug=True)
+
+            # Create your own agent
+            agent = Agent.create(agent='...',
+                                 environment=env,
+                                 ...)
+
+            # Training loop (you couldn't use a Runner instead)
+            env.train(agent=agent, num_episodes=5, max_episode_timesteps=256, weights_dir=None, record_dir=None)
+
+        Known Issues:
+        - TensorForce's Runner is currently not compatible with this environment!
     """
     # States and actions specifications:
     # Actions: throttle, steer, brake, reverse (bool), hand_brake (bool)
@@ -42,11 +70,24 @@ class SynchronousCARLAEnvironment(Environment):
     ROAD_FEATURES_SPEC = dict(type='float', shape=(10,))
 
     # TODO: add a loading map functionality (specified or at random) - load_map
-    # TODO: add should_debug flag(s)
-    # TODO: could change 'route_resolution' to 'planner' in order to abstract the inner planner, also making it optional
     def __init__(self, address='localhost', port=2000, timeout=2.0, image_shape=(200, 150, 3), window_size=(800, 600),
-                 vehicle_filter='vehicle.*', sensors: dict = None, route_resolution=2.0, fps=30.0, visualize=True,
-                 debug=False):
+                 vehicle_filter='vehicle.*', sensors: Optional[dict] = None, route_resolution=2.0, fps=30.0,
+                 render=True, debug=False):
+        """
+        :param address: CARLA simulator's id address. Required only if the simulator runs on a different machine.
+        :param port: CARLA simulator's port.
+        :param timeout: connection timeout.
+        :param image_shape: shape of the images observations.
+        :param window_size: pygame's window size. Meaningful only if `visualize=True`.
+        :param vehicle_filter: use to spawn a particular vehicle (e.g. 'vehicle.tesla.model3') or class of vehicles
+            (e.g. 'vehicle.audi.*')
+        :param sensors: specifies which sensors should be equipped to the vehicle, better specified by subclassing
+            `default_sensors()`.
+        :param route_resolution: route planner resolution grain.
+        :param fps: maximum framerate, it depends on your computing power.
+        :param render: if True a pygame window is shown.
+        :param debug: enable to display some useful information about the vehicle. Meaningful only if `render=True`.
+        """
         super().__init__()
         env_utils.init_pygame()
 
@@ -89,11 +130,11 @@ class SynchronousCARLAEnvironment(Environment):
         self.image_shape = image_shape
         self.image_size = (image_shape[1], image_shape[0])
         self.fps = fps
-        self.visualize = visualize
+        self.should_render = render
         self.should_debug = debug
         self.clock = pygame.time.Clock()
 
-        if self.visualize:
+        if self.should_render:
             self.window_size = window_size
             self.font = env_utils.get_font(size=13)
             self.display = env_utils.get_display(window_size)
@@ -129,7 +170,7 @@ class SynchronousCARLAEnvironment(Environment):
         self.control = carla.VehicleControl()
         self.prev_actions = self.DEFAULT_ACTIONS
 
-        return self._get_observation(image=None)
+        return self._get_observation()
 
     def reward(self, actions, time_cost=-1.0, b=2.0, c=2.0, d=2.0):
         """Agent's reward function"""
@@ -138,7 +179,6 @@ class SynchronousCARLAEnvironment(Environment):
         # Direction term: alignment of the vehicle's forward vector with the waypoint's forward vector
         speed = utils.speed(self.vehicle)
         similarity = self.similarity
-        # self.similarity = similarity * (-1 if self.control.reverse else +1)
 
         if 0.8 <= similarity <= 1.0:
             direction_penalty = (speed + 1) * similarity  # speed + 1, to avoid 0 speed
@@ -170,11 +210,11 @@ class SynchronousCARLAEnvironment(Environment):
         # pygame.event.pump()
         self.clock.tick()
 
-        image = self._sync_world_step(actions, record_path=record_path)
+        sensors_data = self.world_step(actions, record_path=record_path)
 
         reward = self.reward(actions)
         terminal = self.terminal_condition()
-        next_state = self._get_observation(image)
+        next_state = self._get_observation(sensors_data)
 
         # TODO: penalize remaining distance to destination when terminal=True?
 
@@ -206,7 +246,7 @@ class SynchronousCARLAEnvironment(Environment):
         should_save = isinstance(weights_dir, str)
 
         if agent is None:
-            print('Using default agent "if available"...')
+            print('Using default agent "if defined"...')
             agent = self.default_agent(max_episode_timesteps=max_episode_timesteps)
 
         try:
@@ -275,16 +315,29 @@ class SynchronousCARLAEnvironment(Environment):
             self.collision_penalty += min(impulse, max_impulse)
             self.should_terminate = False
 
-    def render(self, image: carla.Image, data: dict):
+    def render(self, sensors_data: dict):
+        image = sensors_data['camera']
         env_utils.display_image(self.display, image, window_size=self.window_size)
 
-        if self.sensors.get('sem_camera', False):
-            segmentation = self.sensors['sem_camera'].convert_image(data['sem_camera'])
-            env_utils.display_image(self.display, segmentation, window_size=self.window_size, blend=True)
-
     def debug(self, actions):
-        env_utils.display_text(self.display, self.font, text=self._get_debug_text(actions), origin=(16, 12),
+        env_utils.display_text(self.display, self.font, text=self.debug_text(actions), origin=(16, 12),
                                offset=(0, 16))
+
+    def debug_text(self, actions):
+        return ['%d FPS' % self.clock.get_fps(),
+                '',
+                'Throttle: %.2f' % self.control.throttle,
+                'Steer: %.2f' % self.control.steer,
+                'Brake: %.2f' % self.control.brake,
+                'Reverse: %s' % ('T' if self.control.reverse else 'F'),
+                'Hand brake: %s' % ('T' if self.control.hand_brake else 'F'),
+                'Gear: %s' % {-1: 'R', 0: 'N'}.get(self.control.gear),
+                '',
+                'Speed %.1f km/h' % utils.speed(self.vehicle),
+                'Similarity %.2f' % self.similarity,
+                '',
+                'Reward: %.2f' % self.reward(actions),
+                'Collision penalty: %.2f' % self.collision_penalty]
 
     def skip(self, num_frames=10):
         """Skips the given amount of frames"""
@@ -297,34 +350,41 @@ class SynchronousCARLAEnvironment(Environment):
     def control_to_actions(self, control: carla.VehicleControl):
         raise NotImplementedError("Implement only if needed for pretraining.")
 
-    def on_pre_world_step(self):
-        """Called before world.tick()"""
+    def before_world_step(self):
+        """Callback: called before world.tick()"""
         pass
 
-    def on_post_world_step(self, sensors_output_data: dict):
-        """Called after world.tick()."""
-        pass
+    def after_world_step(self, sensors_data: dict):
+        """Callback: called after world.tick()."""
+        self._update_env_state()
+
+    def on_sensors_data(self, data: dict) -> dict:
+        """Callback. Triggers when a world's 'tick' occurs, meaning that data from sensors are been collected because a
+        simulation step of the CARLA's world has been completed.
+            - Use this method to preprocess sensors' output data for: rendering, observation, ...
+        """
+        data['camera'] = self.sensors['camera'].convert_image(data['camera'])
+        return data
 
     @profile
-    def _sync_world_step(self, actions, record_path: str = None):
+    def world_step(self, actions, record_path: str = None):
+        """Applies the actions and updates the CARLA's world"""
         # [pre-tick updates] Apply control to update the vehicle
         self.actions_to_control(actions)
         self.vehicle.apply_control(self.control)
 
-        self.on_pre_world_step()
+        self.before_world_step()
 
-        # Advance the simulation and wait for the data.
+        # Advance the simulation and wait for sensors' data.
         data = self.synchronous_context.tick(timeout=self.timeout)
-        image = self.sensors['camera'].convert_image(data['camera'])
+        data = self.on_sensors_data(data)
 
         # [post-tick updates] Update world-related stuff
-        self.on_post_world_step(data)
-        self._update_env_state()
+        self.after_world_step(data)
 
-        # Draw the display
-        if self.visualize:
-            # TODO: maybe 'debug' should go before 'render or be independent
-            self.render(image, data)
+        # Draw and debug:
+        if self.should_render:
+            self.render(sensors_data=data)
 
             if self.should_debug:
                 self.debug(actions)
@@ -334,7 +394,7 @@ class SynchronousCARLAEnvironment(Environment):
             if isinstance(record_path, str):
                 env_utils.pygame_save(self.display, record_path)
 
-        return image
+        return data
 
     def _reset_world(self, soft=False):
         # init actor
@@ -406,7 +466,10 @@ class SynchronousCARLAEnvironment(Environment):
         if self.control.throttle > 0 and self.control.reverse:
             self.control.hand_brake = bool(actions[3] > 0)
 
-    def _get_observation(self, image):
+    def _get_observation(self, sensors_data: dict = None):
+        sensors_data = sensors_data or dict()
+        image = sensors_data.get('camera', None)
+
         if image is None:
             image = np.zeros(shape=self.image_shape, dtype=np.uint8)
 
@@ -474,22 +537,6 @@ class SynchronousCARLAEnvironment(Environment):
                 WAYPOINT_DICT['lane_change'][waypoint.lane_change],
                 WAYPOINT_DICT['lane_marking_type'][waypoint.left_lane_marking.type],
                 WAYPOINT_DICT['lane_marking_type'][waypoint.right_lane_marking.type]]
-
-    def _get_debug_text(self, actions):
-        return ['%d FPS' % self.clock.get_fps(),
-                '',
-                'Throttle: %.2f' % self.control.throttle,
-                'Steer: %.2f' % self.control.steer,
-                'Brake: %.2f' % self.control.brake,
-                'Reverse: %s' % ('T' if self.control.reverse else 'F'),
-                'Hand brake: %s' % ('T' if self.control.hand_brake else 'F'),
-                'Gear: %s' % {-1: 'R', 0: 'N'}.get(self.control.gear),
-                '',
-                'Speed %.1f km/h' % utils.speed(self.vehicle),
-                'Similarity %.2f' % self.similarity,
-                '',
-                'Reward: %.2f' % self.reward(actions),
-                'Collision penalty: %.2f' % self.collision_penalty]
 
     def _create_sensors(self):
         for name, args in self.sensors_spec.items():

@@ -42,8 +42,8 @@ def test_keyboard_agent():
 
 
 def test_route_follow_segmentation(num_episodes: int, num_timesteps: int):
-    env = CARLARouteFollowExperiment(vehicle_filter='vehicle.tesla.model3', debug=True)
-    # env = CARLASegmentationExperiment(vehicle_filter='vehicle.tesla.model3', debug=True)
+    # env = CARLARouteFollowExperiment(vehicle_filter='vehicle.tesla.model3', debug=True)
+    env = CARLASegmentationExperiment(vehicle_filter='vehicle.tesla.model3', debug=True)
     env.train(agent=None, num_episodes=num_episodes, max_episode_timesteps=num_timesteps,
               agent_name='carla-segmentation-experiment', load_agent=False, record_dir=None, weights_dir=None)
 

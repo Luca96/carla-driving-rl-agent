@@ -19,4 +19,4 @@ Before running any code from this repo you have to:
 5. Enjoy!
 
 ## Examples
-...
+See `tests.py` and `agents/experiments.py`.
