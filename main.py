@@ -15,7 +15,6 @@ logger.setLevel(logging.ERROR)
 # TODO [project-level]: use os.path.join for directory strings!!
 # TODO [project-level]: use logger and different logging levels for debug, warnings, etc.!!
 
-
 if __name__ == '__main__':
     # TODO: to make tensorflow 2.x works comment line 29 and 30 in
     #  '/usr/lib/python3.8/site-packages/tensorflow_core/lite/experimental/microfrontend/python/ops
@@ -29,7 +28,10 @@ if __name__ == '__main__':
     # tests.test_baseline_env()
     # tests.test_sequence_layer()
     # tests.test_pretrain_env()
-    tests.test_keyboard_agent()
-    # tests.test_route_follow_segmentation(num_episodes=10, num_timesteps=256)
+    # tests.test_keyboard_agent(version=2)
+    # tests.carla_wrapper()
+    # tests.ppo_experiment(num_episodes=30, num_timesteps=512, load=True, image_shape=(75, 105, 3))  # 70k steps
+    # tests.complete_state(num_episodes=5, num_timesteps=512, load=True, image_shape=(75, 105, 3), time_horizon=10,
+    #                      optimization_steps=5)
 
     pygame.quit()

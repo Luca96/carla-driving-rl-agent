@@ -1,9 +1,12 @@
 """A collection of various experiment settings."""
 
+import cv2
 import math
 import carla
+import pygame
 import numpy as np
 
+from typing import Optional
 from tensorforce import Agent
 
 from agents import Agents, SensorSpecs, Specs
@@ -16,7 +19,7 @@ from tools import utils
 # -- Baseline Experiments
 # -------------------------------------------------------------------------------------------------
 
-class CARLABaselineExperiment(SynchronousCARLAEnvironment):
+class BaselineExperiment(SynchronousCARLAEnvironment):
     ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = np.array([0., 0., 0.])
 
@@ -122,7 +125,7 @@ class CARLABaselineExperiment(SynchronousCARLAEnvironment):
 # -- Experiments
 # -------------------------------------------------------------------------------------------------
 
-class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
+class RouteFollowExperiment(SynchronousCARLAEnvironment):
     """Base class (with basic behaviour) for CARLA Experiments"""
 
     # skill, throttle/brake intensity, steer
@@ -143,8 +146,8 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
         return sensors
 
     def default_agent(self, max_episode_timesteps: int, batch_size=256) -> Agent:
-        policy_spec = dict(network=Specs.agent_network_v2(conv=dict(activation='leaky-relu'),
-                                                          final=dict(layers=2, units=256)),
+        policy_spec = dict(network=Specs.network_v2(conv=dict(activation='leaky-relu'),
+                                                    final=dict(layers=2, units=256)),
                            distributions='gaussian')
 
         critic_spec = policy_spec.copy()
@@ -155,6 +158,9 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
                                batch_size=batch_size,
                                preprocessing=Specs.my_preprocessing(image_shape=(75, 105, 1), stack_images=10),
                                summarizer=Specs.summarizer(frequency=batch_size))
+
+    def terminal_condition(self, distance_threshold=2.0):
+        super().terminal_condition(distance_threshold=distance_threshold)
 
     def get_skill_name(self):
         skill = env_utils.scale(self.prev_actions[0])
@@ -269,23 +275,47 @@ class CARLARouteFollowExperiment(SynchronousCARLAEnvironment):
                 'Waypoint\'s Distance %.2f' % self.route.distance_to_next_waypoint(),
                 '',
                 'Reward: %.2f' % self.reward(actions),
-                'Collision penalty: %.2f' % self.collision_penalty]
+                'Collision penalty: %.2f' % self.collision_penalty,
+                'Skill: %s' % self.get_skill_name()]
 
 
-class CARLASegmentationExperiment(CARLARouteFollowExperiment):
+class ActionPenaltyExperiment(RouteFollowExperiment):
+    # skill, throttle or brake, steer, reverse
+    ACTIONS_SPEC = dict(type='float', shape=(4,), min_value=-1.0, max_value=1.0)
+    DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0, 0.0])
+
+    # TODO: consider to 'decay' actions sa training goes on
+    def actions_to_control(self, actions):
+        self.control.throttle = float(actions[1]) if actions[1] > 0 else 0.0
+        self.control.brake = float(-actions[1]) if actions[1] < 0 else 0.0
+        self.control.steer = float(actions[2])
+        self.control.reverse = bool(actions[3] > 0)
+
+    def action_penalty(self):
+        pass
+
+
+class RadarSegmentationExperiment(RouteFollowExperiment):
+    """Equips the vehicle with RADAR and semantic segmentation camera"""
 
     def default_sensors(self) -> dict:
         sensors = super().default_sensors()
         sensors['camera'] = SensorSpecs.segmentation_camera(position='on-top2',
                                                             attachment_type='Rigid',
-                                                            image_size_x=self.image_shape[1],
-                                                            image_size_y=self.image_shape[0],
-                                                            sensor_tick=1.0 / self.fps)
+                                                            image_size_x=self.image_size[0],
+                                                            image_size_y=self.image_size[1],
+                                                            sensor_tick=self.tick_time)
+        # sensors['depth'] = SensorSpecs.depth_camera(position='on-top2',
+        #                                             attachment_type='Rigid',
+        #                                             image_size_x=self.image_size[0],
+        #                                             image_size_y=self.image_size[1],
+        #                                             sensor_tick=self.tick_time)
+
+        sensors['radar'] = SensorSpecs.radar(position='radar', sensor_tick=self.tick_time)
         return sensors
 
     def on_collision(self, event: carla.CollisionEvent, penalty=1000.0, max_impulse=400.0):
         actor_type = event.other_actor.type_id
-        print(f'Collision with {actor_type}')
 
         if 'pedestrian' in actor_type:
             self.collision_penalty += penalty
@@ -297,13 +327,156 @@ class CARLASegmentationExperiment(CARLARouteFollowExperiment):
             self.collision_penalty += penalty / 10.0
             self.should_terminate = False
 
+    # def on_sensors_data(self, data: dict) -> dict:
+    #     data = super().on_sensors_data(data)
+    #     data['depth'] = self.sensors['depth'].convert_image(data['depth'])
+    #     depth = env_utils.cv2_grayscale(data['depth'], depth=3)
+    #     # data['camera'] = cv2.multiply(data['camera'], cv2.log(1.0 * data['depth']))
+    #
+    #     data['camera'] = np.multiply(data['camera'], 255 - depth)
+    #
+    #     # data['camera'] = env_utils.cv2_grayscale(data['camera'], depth=3)
+    #     return data
 
-class CARLAActionPenaltyExperiment(CARLARouteFollowExperiment):
-    pass
+    def render(self, sensors_data: dict):
+        super().render(sensors_data)
+        print('points:', sensors_data['radar'].get_detection_count())
+        env_utils.draw_radar_measurement(debug_helper=self.world.debug, data=sensors_data['radar'])
 
 
-# TODO: override 'train'
-class CARLAPlayEnvironment(CARLARouteFollowExperiment):
+class CompleteStateExperiment(RouteFollowExperiment):
+    """Equips sensors: semantic camera + depth camera + radar"""
+
+    # # skill, throttle or brake, steer, reverse
+    # ACTIONS_SPEC = dict(type='float', shape=(4,), min_value=-1.0, max_value=1.0)
+    # DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0, 0.0])
+    #
+    # # skills: high-level actions
+    # SKILLS = {0: 'idle',     1: 'brake',
+    #           2: 'forward',  3: 'forward left',  4: 'forward right',
+    #           5: 'backward', 6: 'backward left', 7: 'backward right'}
+
+    def __init__(self, time_horizon=5, *args, **kwargs):
+        assert isinstance(time_horizon, int)
+        super().__init__(*args, **kwargs)
+
+        self.time_horizon = time_horizon
+        self.time_index = 0
+        self.radar_index = 0
+        self.image_shape = self.image_shape[:2] + (time_horizon,)  # consider grayscale images
+        # self.radar_obs_per_step = math.floor(1500 / self.fps) + 1
+
+        # TODO: could be unnecessary to have defaults thanks to skip()!
+        # TODO: try dtype=np.float16 to save memory
+        # features' default values (add a temporal axis)
+        # NOTE: features are 2D-arrays so that applying convolutions is more efficiently than recurrences
+        self.DEFAULT_VEHICLE = np.zeros((time_horizon, self.VEHICLE_FEATURES_SPEC['shape'][0]), dtype=np.float32)
+        self.EMPTY_ACTIONS = np.zeros((time_horizon, self.DEFAULT_ACTIONS.shape[0]), dtype=np.float32)
+        self.DEFAULT_RADAR = np.zeros((50 * time_horizon, 4), dtype=np.float32)
+        self.DEFAULT_IMAGE = np.zeros(self.image_shape, dtype=np.float32)
+        self.DEFAULT_ROAD = np.zeros((time_horizon, self.ROAD_FEATURES_SPEC['shape'][0]), dtype=np.float32)
+
+        # empty observations (to be filled on temporal axis)
+        self.actions_obs = self.EMPTY_ACTIONS.copy()
+        self.vehicle_obs = self.DEFAULT_VEHICLE.copy()
+        self.radar_obs = self.DEFAULT_RADAR.copy()
+        self.image_obs = self.DEFAULT_IMAGE.copy()
+        self.road_obs = self.DEFAULT_ROAD.copy()
+
+    def default_sensors(self) -> dict:
+        sensors = super().default_sensors()
+        sensors['camera'] = SensorSpecs.segmentation_camera(position='on-top2', attachment_type='Rigid',
+                                                            image_size_x=self.image_size[0],
+                                                            image_size_y=self.image_size[1],
+                                                            sensor_tick=self.tick_time)
+        sensors['radar'] = SensorSpecs.radar(position='radar', sensor_tick=self.tick_time)
+        return sensors
+
+    def states(self):
+        return dict(image=dict(shape=self.image_shape),
+                    radar=dict(type='float', shape=self.DEFAULT_RADAR.shape),
+                    road=dict(type='float', shape=self.DEFAULT_ROAD.shape),
+                    vehicle=dict(type='float', shape=self.DEFAULT_VEHICLE.shape),
+                    past_actions=dict(type='float', shape=self.EMPTY_ACTIONS.shape))
+
+    def execute(self, actions, record_path: str = None):
+        state, terminal, reward = super().execute(actions, record_path=record_path)
+        self.time_index = (self.time_index + 1) % self.time_horizon
+
+        return state, terminal, reward
+
+    def reset(self, soft=False) -> dict:
+        self.time_index = 0
+        self.radar_index = 0
+
+        # reset observations (np.copyto() should reuse memory...)
+        np.copyto(self.actions_obs, self.EMPTY_ACTIONS)
+        np.copyto(self.vehicle_obs, self.DEFAULT_VEHICLE)
+        np.copyto(self.radar_obs, self.DEFAULT_RADAR)
+        np.copyto(self.road_obs, self.DEFAULT_ROAD)
+        np.copyto(self.image_obs, self.DEFAULT_IMAGE)
+
+        return super().reset(soft=soft)
+
+    # def actions_to_control(self, actions):
+    #     """Specifies the mapping between an actions vector and the vehicle's control."""
+    #     self.control.throttle = float(actions[1]) if actions[1] > 0 else 0.0
+    #     self.control.brake = float(-actions[1]) if actions[1] < 0 else 0.0
+    #     self.control.steer = float(actions[2])
+    #     self.control.reverse = bool(actions[3] > 0)
+    #     self.control.hand_brake = False
+    #
+    # def action_penalty(self):
+    #     pass
+
+    # def render(self, sensors_data: dict):
+    #     # depth = camera.convert(data)
+    #     # depth = np.stack((depth,) * 3, axis=-1) / depth.max() * 255.0
+    #     # print(depth.shape, depth.min(), depth.max())
+    #
+    #     # sensors_data['camera'] = np.mean(sensors_data['camera'], axis=-1)
+    #     # sensors_data['camera'] = env_utils.to_grayscale(sensors_data['camera'])
+    #     # sensors_data['camera'] = sensors_data['camera'][..., ::-1]
+    #     super().render(sensors_data)
+
+    def on_sensors_data(self, data: dict) -> dict:
+        data = super().on_sensors_data(data)
+        data['radar'] = self.sensors['radar'].convert(data['radar'])
+        return data
+
+    def _get_observation(self, sensors_data: dict) -> dict:
+        if len(sensors_data.keys()) == 0:
+            # sensor_data is empty so, return a default observation
+            return dict(image=self.DEFAULT_IMAGE, radar=self.DEFAULT_RADAR, vehicle=self.DEFAULT_VEHICLE,
+                        road=self.DEFAULT_ROAD, past_actions=self.EMPTY_ACTIONS)
+
+        # grayscale image, plus -1, +1 scaling
+        image = (2 * env_utils.cv2_grayscale(sensors_data['camera']) - 255.0) / 255.0
+        radar = sensors_data['radar']
+        t = self.time_index
+
+        # concat new observations along the temporal axis:
+        self.vehicle_obs[t] = self._get_vehicle_features()
+        self.actions_obs[t] = self.prev_actions.copy()
+        self.road_obs[t] = self._get_road_features()
+        self.image_obs[:, :, t] = image
+
+        # copy radar measurements
+        for i, detection in enumerate(radar):
+            index = (self.radar_index + i) % self.radar_obs.shape[0]
+            self.radar_obs[index] = detection
+
+        # observation
+        return dict(image=self.image_obs, radar=self.radar_obs, vehicle=self.vehicle_obs,
+                    road=self.road_obs, past_actions=self.actions_obs)
+
+
+# -------------------------------------------------------------------------------------------------
+# -- Play Environments
+# -------------------------------------------------------------------------------------------------
+
+# TODO: override 'train' (if necessary) -> consider to add 'play' and 'record' methods instead of 'train'
+class CARLAPlayEnvironment(RouteFollowExperiment):
     ACTIONS_SPEC = dict(type='float', shape=(5,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = [0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -318,7 +491,23 @@ class CARLAPlayEnvironment(CARLARouteFollowExperiment):
         return sensors
 
     def default_agent(self, **kwargs) -> Agent:
-        return Agents.dummy.keyboard(self)
+        return Agents.keyboard(self)
+
+    def play(self):
+        """Let's you control the vehicle with a keyboard."""
+        states = self.reset()
+        agent = self.default_agent()
+        terminal = False
+
+        try:
+            with self.synchronous_context:
+                while not terminal:
+                    actions = agent.act(states)
+                    states, terminal, reward = self.execute(actions)
+                    agent.observe(reward, terminal)
+        finally:
+            agent.close()
+            self.close()
 
     def actions_to_control(self, actions):
         self.control.throttle = actions[0]
@@ -333,24 +522,31 @@ class CARLAPlayEnvironment(CARLARouteFollowExperiment):
             self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)
 
 
+class PLayEnvironment2(RadarSegmentationExperiment, CARLAPlayEnvironment):
+
+    def before_world_step(self):
+        pass
+
+
+class PLayEnvironment3(CompleteStateExperiment, CARLAPlayEnvironment):
+
+    def before_world_step(self):
+        pass
+
+
 # -------------------------------------------------------------------------------------------------
 # -- Pretraining Experiments
 # -------------------------------------------------------------------------------------------------
 
 # TODO: improve, solve the issue with env.reset()
-class CARLAPretrainExperiment(CARLARouteFollowExperiment):
+class CARLAPretrainExperiment(CompleteStateExperiment):
 
-    def default_sensors(self) -> dict:
-        return super().default_sensors()
-
-    def default_agent(self) -> Agent:
-        raise NotImplementedError
+    def default_agent(self, **kwargs) -> Agent:
+        return Agents.pretraining(self, speed=30.0, **kwargs)
 
     def reward(self, actions, time_cost=-1.0, b=-1000.0, c=2.0, d=2.0):
         speed = utils.speed(self.vehicle)
         direction_penalty = speed + 1
-        efficiency_term = 0.0
-
         speed_limit = self.vehicle.get_speed_limit()
 
         if speed <= speed_limit:
@@ -358,21 +554,34 @@ class CARLAPretrainExperiment(CARLARouteFollowExperiment):
         else:
             speed_penalty = c * (speed_limit - speed)
 
-        return time_cost - self.collision_penalty + efficiency_term + direction_penalty + speed_penalty
+        return time_cost - self.collision_penalty + direction_penalty + speed_penalty
 
     @staticmethod
-    def _skill_from_control(control: carla.VehicleControl) -> (float, str):
+    def _skill_from_control(control: carla.VehicleControl, eps=0.1) -> (float, str):
         throttle = control.throttle
         steer = control.steer
         brake = control.brake
         reverse = control.reverse
 
-        if throttle == 0.0 and brake > 0.0:
-            return -0.7, 'brake'
+        if (throttle <= eps) and (brake > eps):
+            return -0.75, 'brake'
+
+        elif reverse:
+            if (throttle > eps) and (brake <= eps):
+                if steer > eps:
+                    return 0.7, 'backward left'
+                elif steer < -eps:
+                    return 0.9, 'backward right'
+                else:
+                    return 0.4, 'backward'
+
+
+        if (throttle <= eps) and (brake > eps):
+            return -0.75, 'brake'
         elif not reverse:
-            if (throttle > 0.0) and (brake == 0.0) and (steer == 0.0):
-                return -0.4, 'forward'
-            elif (throttle > 0.0) and (brake == 0.0) and (steer < 0.0):
+            if (throttle > eps) and (brake <= eps) and (-eps / 2.0 < steer < eps / 2.0):
+                return -0.45, 'forward'
+            elif (throttle > eps) and (brake == 0.0) and (steer < 0.0):
                 return -0.15, 'forward left'
             elif (throttle > 0.0) and (brake == 0.0) and (steer > 0.0):
                 return 0.1, 'forward right'
@@ -386,13 +595,21 @@ class CARLAPretrainExperiment(CARLARouteFollowExperiment):
             elif (throttle > 0.0) and (brake == 0.0) and (steer < 0.0):
                 return 0.9, 'backward right'
 
+    # def control_to_actions(self, control: carla.VehicleControl):
+    #     skill, name = self._skill_from_control(control)
+    #
+    #     if control.throttle > 0.0:
+    #         return [skill, control.throttle, control.steer], name
+    #     else:
+    #         return [skill, control.brake, control.steer], name
+
     def control_to_actions(self, control: carla.VehicleControl):
         skill, name = self._skill_from_control(control)
 
         if control.throttle > 0.0:
-            return [skill, control.throttle, control.steer], name
+            return [skill, control.throttle, control.steer, control.reverse], name
         else:
-            return [skill, control.brake, control.steer], name
+            return [skill, -control.brake, control.steer, control.reverse], name
 
 
 # -------------------------------------------------------------------------------------------------

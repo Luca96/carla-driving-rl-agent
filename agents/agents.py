@@ -13,38 +13,36 @@ from agents.environment import SynchronousCARLAEnvironment
 from navigation import LocalPlanner
 
 
-class Dummy:
-    @staticmethod
-    def random_walk(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, speed: float, **kwargs):
-        return RandomWalkAgent(carla_env, max_episode_timesteps, speed, **kwargs)
-
-    @staticmethod
-    def keyboard(carla_env: SynchronousCARLAEnvironment, fps=30.0, mode='play'):
-        return KeyboardAgent(carla_env, fps, mode)
-
-
 class Agents:
     """Provides predefined agents"""
-    dummy = Dummy
 
     @staticmethod
     def get(kind: str, env: SynchronousCARLAEnvironment, *args, **kwargs):
         pass
 
     @staticmethod
+    def pretraining(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, speed: float, **kwargs):
+        return PretrainingAgent(carla_env, max_episode_timesteps, speed, **kwargs)
+
+    @staticmethod
+    def keyboard(carla_env: SynchronousCARLAEnvironment, fps=30.0, mode='play'):
+        return KeyboardAgent(carla_env, fps, mode)
+
+    @staticmethod
     def baseline(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps=512, batch_size=256, exploration=0.0,
                  update_frequency: Optional[int] = None, horizon: Optional[int] = None, discount=0.997, entropy=0.05,
-                 **kwargs) -> Agent:
+                 name='baseline', **kwargs) -> Agent:
         horizon = horizon or (batch_size - 1)
         assert horizon < batch_size
         update_frequency = update_frequency or batch_size
 
         return Agent.create(agent='tensorforce',
+                            name=name,
                             environment=carla_env,
                             max_episode_timesteps=max_episode_timesteps,
 
                             policy=Specs.policy(distributions='gaussian',
-                                                network=Specs.agent_network_v0(),
+                                                network=Specs.network_v0(),
                                                 temperature=0.99),
 
                             optimizer=dict(type='adam', learning_rate=3e-4),
@@ -62,17 +60,17 @@ class Agents:
     def evolutionary(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size=256, num_samples=6,
                      update_frequency: Optional[int] = None, decay_steps=768, filters=36, decay=0.995, lr=0.1,
                      units=(256, 128), layers=(2, 2), temperature=(0.9, 0.7), horizon: Optional[int] = None, width=140,
-                     height=105,  **kwargs) -> Agent:
+                     height=105, name='evolutionary',  **kwargs) -> Agent:
         horizon = horizon or (batch_size - 1)
         assert horizon < batch_size
 
-        policy_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                         final=dict(layers=layers[0], units=units[0], activation='leaky-relu'))
+        policy_net = Specs.network_v1(conv=dict(stride=1, pooling='max', filters=filters),
+                                      final=dict(layers=layers[0], units=units[0], activation='leaky-relu'))
 
         decay_lr = Specs.exp_decay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay)
 
-        critic_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                         final=dict(layers=layers[1], units=units[1]))
+        critic_net = Specs.network_v1(conv=dict(stride=1, pooling='max', filters=filters),
+                                      final=dict(layers=layers[1], units=units[1]))
 
         if 'preprocessing' in kwargs.keys():
             preprocessing = kwargs.pop('preprocessing')
@@ -81,6 +79,7 @@ class Agents:
                                         dict(type='exponential_normalization')])
 
         return Specs.carla_agent(carla_env, max_episode_timesteps,
+                                 name=name,
                                  policy=dict(network=policy_net,
                                              optimizer=dict(type='evolutionary', num_samples=num_samples,
                                                             learning_rate=decay_lr),
@@ -107,24 +106,24 @@ class Agents:
     def criticless(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size=256, num_samples=6,
                    update_frequency: Optional[int] = None, decay_steps=768, filters=36, decay=0.995, lr=0.1, units=256,
                    layers=2, temperature=0.9, horizon: Optional[int] = None, width=140, height=105, discount=1.0,
-                   **kwargs) -> Agent:
+                   name='criticless', **kwargs) -> Agent:
         horizon = horizon or (batch_size - 1)
         assert horizon < batch_size
         update_frequency = update_frequency or batch_size
 
-        policy_net = Specs.agent_network(conv=dict(stride=1, pooling='max', filters=filters),
-                                         final=dict(layers=layers, units=units, activation='leaky-relu'))
+        policy_net = Specs.network_v1(conv=dict(stride=1, pooling='max', filters=filters),
+                                      final=dict(layers=layers, units=units, activation='leaky-relu'))
 
         decay_lr = Specs.exp_decay(steps=decay_steps, unit='updates', initial_value=lr, rate=decay)
 
         if 'preprocessing' in kwargs.keys():
             preprocessing = kwargs.pop('preprocessing')
-            print(preprocessing)
         else:
             preprocessing = dict(image=[dict(type='image', width=width, height=height, grayscale=True),
                                         dict(type='exponential_normalization')])
 
         return Agent.create(agent='tensorforce',
+                            name=name,
                             environment=carla_env,
                             max_episode_timesteps=max_episode_timesteps,
 
@@ -147,7 +146,61 @@ class Agents:
                             **kwargs)
 
     @staticmethod
-    def ppo_like(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict,
+    def ppo(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size=1, subsampling_fraction=0.25,
+            optimization_steps=10, discount=0.99, name='ppo', learning_rate=3e-4, critic_optimizer: dict = None,
+            filters=32, dropout=0.0, final_units=200, **kwargs) -> Agent:
+        policy_net = Specs.network_v2(conv=dict(activation='leaky-relu', filters=filters),
+                                      final=dict(activation='tanh', units=final_units),
+                                      dropout=dropout)
+        return Agent.create(agent='ppo',
+                            name=name,
+                            environment=carla_env,
+                            max_episode_timesteps=max_episode_timesteps,
+                            discount=discount,
+
+                            network=policy_net,
+                            learning_rate=learning_rate,
+                            batch_size=batch_size,
+                            subsampling_fraction=subsampling_fraction,
+                            optimization_steps=optimization_steps,
+
+                            critic_network=policy_net.copy(),
+                            critic_optimizer=critic_optimizer or 'adam',
+                            **kwargs)
+
+    @staticmethod
+    def ppo3(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, time_horizon: int, batch_size=1,
+             optimization_steps=10, discount=0.99, name='ppo3', learning_rate=3e-4, critic_optimizer: dict = None,
+             dropout=0.0, subsampling_fraction=0.25, **kwargs) -> Agent:
+        assert time_horizon > 0
+        t = time_horizon
+
+        # TODO: get shapes from environment!
+        policy_net = Specs.network_v3(features=dict(radar=dict(shape=(50, 40), filters=5, kernel=5, stride=2, layers=3),
+                                                    road=dict(shape=(t, 10), filters=4, kernel=3, stride=1, layers=4),
+                                                    vehicle=dict(shape=(t, 17), filters=4, kernel=(3, 4), layers=4),
+                                                    past_actions=dict(shape=(t, 3), filters=5, kernel=(3, 1), layers=4)),
+                                      final=dict(layers=2, units=256, activation='tanh'),  # 274 -> 256 -> 256 -> a_t
+                                      dropout=dropout)
+
+        return Agent.create(agent='ppo',
+                            name=name,
+                            environment=carla_env,
+                            max_episode_timesteps=max_episode_timesteps,
+                            discount=discount,
+
+                            network=policy_net,
+                            learning_rate=learning_rate,
+                            batch_size=batch_size,
+                            subsampling_fraction=subsampling_fraction,
+                            optimization_steps=optimization_steps,
+
+                            critic_network=policy_net.copy(),
+                            critic_optimizer=critic_optimizer or 'adam',
+                            **kwargs)
+
+    @staticmethod
+    def ppo_like(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict, name='ppo_like',
                  critic: Optional[dict] = None, batch_size=64, update_frequency: Optional[int] = None, huber_loss=0.0,
                  discount=1.0, horizon: Optional[int] = None, estimate_terminal=False, **kwargs) -> Agent:
         horizon = horizon or (batch_size - 1)
@@ -162,6 +215,7 @@ class Agents:
             critic_objective = Specs.obj.value(value='state', huber_loss=huber_loss)
 
         return Agent.create(agent='tensorforce',
+                            name=name,
                             environment=carla_env,
                             max_episode_timesteps=max_episode_timesteps,
                             update=Specs.update(unit='timesteps', batch_size=batch_size, frequency=update_frequency),
@@ -211,12 +265,13 @@ class DummyAgent(object):
         raise NotImplementedError('Unsupported operation!')
 
 
-class RandomWalkAgent(DummyAgent):
+class PretrainingAgent(DummyAgent):
     """A dummy agent whose only purpose is to record traces for pretraining other agents"""
 
     def __init__(self, env: SynchronousCARLAEnvironment, max_episode_timesteps: int, speed=30.0, use_speed_limit=False,
                  traces_dir=None, **kwargs):
         self.agent = Agent.create(agent='constant',
+                                  name='pretraining',
                                   environment=env,
                                   max_episode_timesteps=max_episode_timesteps,
                                   action_values=env.DEFAULT_ACTIONS,
@@ -250,7 +305,7 @@ class RandomWalkAgent(DummyAgent):
         control = self._run_step()
         actions, skill_name = self.env.control_to_actions(control)
 
-        # hack: records "custom" (not constant) actions
+        # hack: record "custom" (not constant) actions
         for name in self.agent.actions_spec.keys():
             if isinstance(actions, dict):
                 self.agent.actions_buffers[name][0, self.index] = actions[name]
@@ -267,7 +322,7 @@ class RandomWalkAgent(DummyAgent):
         super().save(**kwargs)
 
     def observe(self, reward, terminal=False, **kwargs):
-        # hack: records rewards and terminals
+        # hack: record rewards and terminals
         return self.agent.observe(reward, terminal=terminal, **kwargs)
 
     def _run_step(self) -> carla.VehicleControl:

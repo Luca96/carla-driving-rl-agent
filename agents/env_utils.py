@@ -2,6 +2,7 @@
 
 import os
 import cv2
+import math
 import random
 import numpy as np
 import carla
@@ -9,6 +10,7 @@ import pygame
 import threading
 import datetime
 
+from typing import Tuple, Union
 from tensorforce import Agent
 
 
@@ -161,6 +163,46 @@ def get_blueprint(world: carla.World, actor_id: str) -> carla.ActorBlueprint:
     return world.get_blueprint_library().find(actor_id)
 
 
+def global_to_local(point: carla.Location, reference: Union[carla.Transform, carla.Location, carla.Rotation]):
+    """Translates a 3D point from global to local coordinates using the current transformation as reference"""
+    if isinstance(reference, carla.Transform):
+        reference.transform(point)
+    elif isinstance(reference, carla.Location):
+        carla.Transform(reference, carla.Rotation()).transform(point)
+    elif isinstance(reference, carla.Rotation):
+        carla.Transform(carla.Location(), reference).transform(point)
+    else:
+        raise ValueError('Argument "reference" is none of carla.Transform or carla.Location or carla.Rotation!')
+
+
+def draw_radar_measurement(debug_helper: carla.DebugHelper, data: carla.RadarMeasurement, velocity_range=7.5,
+                           size=0.075, life_time=0.06):
+    """Code adapted from carla/PythonAPI/examples/manual_control.py:
+        - White: means static points.
+        - Red: indicates points moving towards the object.
+        - Blue: denoted points moving away.
+    """
+    radar_rotation = data.transform.rotation
+    for detection in data:
+        azimuth = math.degrees(detection.azimuth) + radar_rotation.yaw
+        altitude = math.degrees(detection.altitude) + radar_rotation.pitch
+
+        # move to local coordinates:
+        forward_vec = carla.Vector3D(x=detection.depth - 0.25)
+        global_to_local(forward_vec,
+                        reference=carla.Rotation(pitch=altitude, yaw=azimuth, roll=radar_rotation.roll))
+
+        # compute color:
+        norm_velocity = detection.velocity / velocity_range
+        r = int(clamp(0.0, 1.0, 1.0 - norm_velocity) * 255.0)
+        g = int(clamp(0.0, 1.0, 1.0 - abs(norm_velocity)) * 255.0)
+        b = int(abs(clamp(-1.0, 0.0, -1.0 - norm_velocity)) * 255.0)
+
+        # draw:
+        debug_helper.draw_point(data.transform.location + forward_vec, size=size, life_time=life_time,
+                                persistent_lines=False, color=carla.Color(r, g, b))
+
+
 # -------------------------------------------------------------------------------------------------
 # -- Other
 # -------------------------------------------------------------------------------------------------
@@ -208,3 +250,61 @@ def get_record_path(base_dir: str, prefix='ep', pattern='-'):
     os.mkdir(record_path)
 
     return record_path
+
+
+def clamp(value, min_value, max_value):
+    """Clips the given [value] in the given interval [min_value, max_value]"""
+    return max(min_value, min(value, max_value))
+
+
+# def to_grayscale(image, is_bgr=True, depth=1):
+#     assert depth >= 1
+#
+#     if is_bgr:
+#         b, g, r = image[:, :, 0], image[:, :, 1], image[:, :, 2]
+#     else:
+#         r, g, b = image[:, :, 0], image[:, :, 1], image[:, :, 2]
+#
+#     gray_image = 0.2989 * r + 0.5870 * g + 0.1140 * b
+#
+#     if depth > 1:
+#         return np.stack((gray_image,) * depth, axis=-1)
+#
+#     return gray_image
+
+
+def cv2_grayscale(image, is_bgr=True, depth=1):
+    """Convert a RGB or BGR image to grayscale using OpenCV (cv2).
+        :param image: input image, a numpy.ndarray.
+        :param is_bgr: tells whether the image is in BGR format. If False, RGB format is assumed.
+        :param depth: replicates the gray depth channel multiple times. E.g. useful to display grayscale images as rgb.
+    """
+    assert depth >= 1
+
+    if is_bgr:
+        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        grayscale = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+    if depth > 1:
+        return np.stack((grayscale,) * depth, axis=-1)
+
+    return grayscale
+
+
+def replace_nans(data: dict, nan=0.0, pos_inf=0.0, neg_inf=0.0):
+    """In-place replacement of non-numerical values, i.e. NaNs and +/- infinity"""
+    for key, value in data.items():
+        if np.isnan(value).any() or np.isinf(value).any():
+            print(f'[{key}] NaN/Inf', np.sum(np.isnan(value)) + np.sum(np.isinf(value)))
+            data[key] = np.nan_to_num(value, nan=nan, posinf=pos_inf, neginf=neg_inf)
+            print(not np.isnan(value).any() and (not np.isinf(value).any()))
+
+    return data
+
+
+# -------------------------------------------------------------------------------------------------
+# -- Math
+# -------------------------------------------------------------------------------------------------
+
+

@@ -1,3 +1,4 @@
+import os
 import math
 import carla
 import pygame
@@ -58,7 +59,7 @@ class SynchronousCARLAEnvironment(Environment):
         - TensorForce's Runner is currently not compatible with this environment!
     """
     # States and actions specifications:
-    # Actions: throttle, steer, brake, reverse (bool), hand_brake (bool)
+    # Actions: throttle or brake, steer, reverse (bool), hand_brake (bool)
     ACTIONS_SPEC = dict(type='float', shape=(4,), min_value=-1.0, max_value=1.0)
     DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0, 0.0])
 
@@ -70,7 +71,7 @@ class SynchronousCARLAEnvironment(Environment):
     ROAD_FEATURES_SPEC = dict(type='float', shape=(10,))
 
     # TODO: add a loading map functionality (specified or at random) - load_map
-    def __init__(self, address='localhost', port=2000, timeout=2.0, image_shape=(200, 150, 3), window_size=(800, 600),
+    def __init__(self, address='localhost', port=2000, timeout=2.0, image_shape=(150, 200, 3), window_size=(800, 600),
                  vehicle_filter='vehicle.*', sensors: Optional[dict] = None, route_resolution=2.0, fps=30.0,
                  render=True, debug=False):
         """
@@ -129,7 +130,9 @@ class SynchronousCARLAEnvironment(Environment):
         # visualization and debugging stuff
         self.image_shape = image_shape
         self.image_size = (image_shape[1], image_shape[0])
+        self.DEFAULT_IMAGE = np.zeros(shape=self.image_shape, dtype=np.float32)
         self.fps = fps
+        self.tick_time = 1.0 / self.fps
         self.should_render = render
         self.should_debug = debug
         self.clock = pygame.time.Clock()
@@ -162,7 +165,7 @@ class SynchronousCARLAEnvironment(Environment):
     def actions(self):
         return self.ACTIONS_SPEC
 
-    def reset(self, soft=False):
+    def reset(self, soft=False) -> dict:
         print('env.reset(soft=True)') if soft else print('env.reset')
         self._reset_world(soft=soft)
 
@@ -170,7 +173,8 @@ class SynchronousCARLAEnvironment(Environment):
         self.control = carla.VehicleControl()
         self.prev_actions = self.DEFAULT_ACTIONS
 
-        return self._get_observation()
+        observation = env_utils.replace_nans(self._get_observation(sensors_data={}))
+        return observation
 
     def reward(self, actions, time_cost=-1.0, b=2.0, c=2.0, d=2.0):
         """Agent's reward function"""
@@ -185,6 +189,7 @@ class SynchronousCARLAEnvironment(Environment):
         else:
             direction_penalty = (speed + 1) * abs(similarity) * -d
 
+        # TODO: check
         # also measures the distance from the centre of the road
         if self.control.reverse:
             waypoint_term = self.route.distance_to_next_waypoint() * -b
@@ -214,7 +219,7 @@ class SynchronousCARLAEnvironment(Environment):
 
         reward = self.reward(actions)
         terminal = self.terminal_condition()
-        next_state = self._get_observation(sensors_data)
+        next_state = env_utils.replace_nans(self._get_observation(sensors_data))
 
         # TODO: penalize remaining distance to destination when terminal=True?
 
@@ -246,12 +251,13 @@ class SynchronousCARLAEnvironment(Environment):
         should_save = isinstance(weights_dir, str)
 
         if agent is None:
-            print('Using default agent "if defined"...')
+            print(f'Using default agent...')
             agent = self.default_agent(max_episode_timesteps=max_episode_timesteps)
 
         try:
             if load_agent:
-                agent.load(directory='weights_dir', filename=agent_name, environment=self)
+                agent.load(directory=os.path.join(weights_dir, agent_name), filename=agent_name, environment=self,
+                           format='tensorflow')
                 print('Agent loaded.')
 
             # TODO: introduce callbacks: 'on_episode_start', 'on_episode_end', 'on_update', 'on_record', ..,
@@ -293,8 +299,8 @@ class SynchronousCARLAEnvironment(Environment):
         return dict(imu=SensorSpecs.imu(),
                     collision=SensorSpecs.collision_detector(callback=self.on_collision),
                     camera=SensorSpecs.rgb_camera(position='top',
-                                                  image_size_x=self.image_shape[1], image_size_y=self.image_shape[0],
-                                                  sensor_tick=1.0 / self.fps))
+                                                  image_size_x=self.image_size[0], image_size_y=self.image_size[1],
+                                                  sensor_tick=self.tick_time))
 
     def default_agent(self, **kwargs) -> Agent:
         """Returns a predefined agent for this environment"""
@@ -302,20 +308,23 @@ class SynchronousCARLAEnvironment(Environment):
 
     def on_collision(self, event: carla.CollisionEvent, penalty=1000.0, max_impulse=400.0):
         impulse = math.sqrt(utils.vector_norm(event.normal_impulse))
+        impulse = min(impulse, max_impulse)
         actor_type = event.other_actor.type_id
         print(f'Collision(impulse={round(impulse, 2)}, actor={actor_type})')
 
         if 'pedestrian' in actor_type:
             self.collision_penalty += max(penalty * impulse, penalty)
             self.should_terminate = True
+
         elif 'vehicle' in actor_type:
             self.collision_penalty += max(penalty / 2 * impulse, penalty)
             self.should_terminate = True
         else:
-            self.collision_penalty += min(impulse, max_impulse)
+            self.collision_penalty += penalty * impulse
             self.should_terminate = False
 
     def render(self, sensors_data: dict):
+        """Renders sensors' output"""
         image = sensors_data['camera']
         env_utils.display_image(self.display, image, window_size=self.window_size)
 
@@ -368,7 +377,7 @@ class SynchronousCARLAEnvironment(Environment):
 
     @profile
     def world_step(self, actions, record_path: str = None):
-        """Applies the actions and updates the CARLA's world"""
+        """Applies the actions to the vehicle, and updates the CARLA's world"""
         # [pre-tick updates] Apply control to update the vehicle
         self.actions_to_control(actions)
         self.vehicle.apply_control(self.control)
@@ -450,28 +459,20 @@ class SynchronousCARLAEnvironment(Environment):
         self.last_location = location2
 
     def actions_to_control(self, actions):
+        """Specifies the mapping between an actions vector and the vehicle's control."""
         # throttle and brake are mutual exclusive:
         self.control.throttle = float(actions[0]) if actions[0] > 0 else 0.0
         self.control.brake = float(-actions[0]) if actions[0] < 0 else 0.0
 
         self.control.steer = float(actions[1])
-
-        # reverse could be enabled only if throttle > 0
-        if self.control.throttle > 0:
-            self.control.reverse = bool(actions[2] > 0)
-        else:
-            self.control.reverse = False
+        self.control.reverse = bool(actions[2] > 0)
 
         # hand-brake active only if throttle > 0 and reverse is False
         if self.control.throttle > 0 and self.control.reverse:
             self.control.hand_brake = bool(actions[3] > 0)
 
-    def _get_observation(self, sensors_data: dict = None):
-        sensors_data = sensors_data or dict()
-        image = sensors_data.get('camera', None)
-
-        if image is None:
-            image = np.zeros(shape=self.image_shape, dtype=np.uint8)
+    def _get_observation(self, sensors_data: dict) -> dict:
+        image = sensors_data.get('camera', self.DEFAULT_IMAGE)
 
         if image.shape != self.image_shape:
             image = env_utils.resize(image, size=self.image_size)
@@ -481,14 +482,6 @@ class SynchronousCARLAEnvironment(Environment):
                            vehicle_features=self._get_vehicle_features(),
                            road_features=self._get_road_features(),
                            previous_actions=self.prev_actions)
-
-        # check for nan/inf values
-        for key, value in observation.items():
-            if np.isnan(value).any() or np.isinf(value).any():
-                print(f'[{key}] NaN/Inf', np.sum(np.isnan(value)) + np.sum(np.isinf(value)))
-                observation[key] = np.nan_to_num(value, nan=0.0, posinf=0.0, neginf=0.0)
-                print(not np.isnan(value).any() and (not np.isinf(value).any()))
-
         return observation
 
     def _get_vehicle_features(self):
