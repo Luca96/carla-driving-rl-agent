@@ -78,7 +78,7 @@ class LocalPlanner(object):
         self._vehicle = None
         print("Resetting ego-vehicle!")
 
-    def _init_controller(self, opt_dict):
+    def _init_controller(self, opt_dict: dict):
         """
         Controller initialization.
 
@@ -86,34 +86,13 @@ class LocalPlanner(object):
         :return:
         """
         # default params
-        self._dt = 1.0 / 20.0
-        self._target_speed = 20.0  # Km/h
-        self._sampling_radius = self._target_speed * 1 / 3.6  # 1 seconds horizon
+        self._dt = opt_dict.get('dt', 1.0 / 20.0)
+        self._target_speed = opt_dict.get('target_speed', 20.0)  # km/h
+        self._sampling_radius = self._target_speed * opt_dict.get('sampling_radius', 1.0) / 3.6  # 1 seconds horizon
         self._min_distance = self._sampling_radius * self.MIN_DISTANCE_PERCENTAGE
-        args_lateral_dict = {
-            'K_P': 1.95,
-            'K_D': 0.01,
-            'K_I': 1.4,
-            'dt': self._dt}
-        args_longitudinal_dict = {
-            'K_P': 1.0,
-            'K_D': 0,
-            'K_I': 1,
-            'dt': self._dt}
 
-        # parameters overload
-        if opt_dict:
-            if 'dt' in opt_dict:
-                self._dt = opt_dict['dt']
-            if 'target_speed' in opt_dict:
-                self._target_speed = opt_dict['target_speed']
-            if 'sampling_radius' in opt_dict:
-                self._sampling_radius = self._target_speed * \
-                                        opt_dict['sampling_radius'] / 3.6
-            if 'lateral_control_dict' in opt_dict:
-                args_lateral_dict = opt_dict['lateral_control_dict']
-            if 'longitudinal_control_dict' in opt_dict:
-                args_longitudinal_dict = opt_dict['longitudinal_control_dict']
+        args_lateral_dict = opt_dict.get('lateral_control_dict', dict(K_P=1.95, K_D=0.01, K_I=1.4, dt=self._dt))
+        args_longitudinal_dict = opt_dict.get('longitudinal_control_dict', dict(K_P=1.0, K_D=0, K_I=1, dt=self._dt))
 
         self._current_waypoint = self._map.get_waypoint(self._vehicle.get_location())
         self._vehicle_controller = VehiclePIDController(self._vehicle,

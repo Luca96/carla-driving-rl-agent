@@ -1,9 +1,8 @@
 """A list of classes that wraps specifications dict for the ease of defining TensorforceAgents agents"""
 
-from typing import Optional
 from tensorforce import Agent
 
-from typing import Optional, Union, List, Tuple, Dict
+from typing import Optional, Union, List, Tuple, Dict, Callable
 from agents.environment import SynchronousCARLAEnvironment
 
 ListOrString = Optional[Union[str, List[str]]]
@@ -95,7 +94,7 @@ class Optimizers:
 
 
 class Layers:
-    """Wraps some Keras layers"""
+    """Wraps some TensorForce's layers"""
 
     @staticmethod
     def layer_normalization() -> dict:
@@ -124,6 +123,145 @@ class Layers:
                          activation='relu', **kwargs) -> dict:
         return dict(type='keras', layer='DepthwiseConv2D', filters=filters, kernel_size=kernel, strides=strides,
                     depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs)
+
+    @staticmethod
+    def global_pool(reduction: str) -> dict:
+        return dict(type='pooling', reduction=reduction)
+
+    @staticmethod
+    def global_avg_pooling() -> dict:
+        return dict(type='pooling', reduction='mean')
+
+    @staticmethod
+    def flatten() -> dict:
+        return dict(type='flatten')
+
+    @staticmethod
+    def dense(units: int, activation='relu', dropout=0.0) -> dict:
+        return dict(type='dense', size=units, activation=activation, dropout=dropout)
+
+    @staticmethod
+    def conv2d_max_pool(filters, kernels: List[IntOrPair], strides: List[IntOrPair], activation='relu',
+                        dropout=0.0, filter_increase=2) -> dict:
+        assert len(kernels) == len(strides)
+        layers = []
+
+        for kernel, stride in zip(kernels, strides):
+            layers.append(dict(type='conv2d', size=int(filters), window=kernel, stride=stride, activation=activation,
+                               dropout=dropout))
+            filters = filters * filter_increase
+
+        layers.append(dict(type='pool2d', reduction='max', window=2, stride=2))
+
+        return dict(type='block', layers=layers)
+
+
+class NetworkSpec:
+    """Ease the creation of a custom network specification; it also wraps layers as class methods."""
+
+    def __init__(self, inputs: ListOrString = None):
+        self.layers = []
+        self.inputs(inputs)
+
+    def add_layer(self, layer: dict):
+        self.layers.append(layer)
+
+    def add_normalization(self, kind: Optional[str] = None):
+        if kind is None:
+            return
+
+        assert isinstance(kind, str)
+        assert kind in ['batch', 'layer', 'instance', 'exponential']
+
+        if kind == 'batch':
+            self.layer_normalization()
+        elif kind == 'layer':
+            self.batch_normalization()
+        elif kind == 'instance':
+            self.instance_normalization()
+        else:
+            self.exponential_normalization()
+
+    def inputs(self, inputs: ListOrString = None):
+        """Input layer"""
+        if inputs is None:
+            return
+
+        if isinstance(inputs, list):
+            assert len(inputs) > 0
+            self.add_layer(dict(type='retrieve', tensors=inputs))
+
+        elif isinstance(inputs, str):
+            self.add_layer(dict(type='retrieve', tensors=[inputs]))
+        else:
+            raise ValueError(f'Argument `inputs` should be of type `str` or `List[str]`, not `{type(inputs)}`.')
+
+    def output(self, output: Optional[str] = None):
+        """Output layer"""
+        if output is None:
+            return
+
+        if isinstance(output, str):
+            self.add_layer(dict(type='register', tensor=output))
+        else:
+            raise ValueError(f'Argument `output` should be of type `str`, not `{type(output)}`.')
+
+    def layer_normalization(self):
+        self.add_layer(dict(type='keras', layer='LayerNormalization'))
+
+    def batch_normalization(self):
+        self.add_layer(dict(type='keras', layer='BatchNormalization'))
+
+    def exponential_normalization(self, decay=0.999):
+        self.add_layer(dict(type='exponential_normalization', decay=decay))
+
+    def instance_normalization(self):
+        self.add_layer(dict(type='instance_normalization'))
+
+    def gaussian_noise(self, stddev: float):
+        self.add_layer(dict(type='keras', layer='GaussianNoise', stddev=stddev))
+
+    def spatial_dropout(self, rate: float):
+        self.add_layer(dict(type='keras', layer='SpatialDropout2D', rate=rate))
+
+    def conv2d(self, filters, kernel=3, stride=1, padding='same', activation='relu', dropout=0.0):
+        self.add_layer(dict(type='conv2d', size=int(filters), window=kernel, stride=stride, padding=padding, bias=True,
+                            activation=activation, dropout=dropout))
+
+    def separable_conv2d(self, filters: int, kernel: IntOrPair, strides=(1, 1), padding='valid', depth_multiplier=1,
+                         activation='relu', **kwargs):
+        self.add_layer(dict(type='keras', layer='SeparableConv2D', filters=filters, kernel_size=kernel, strides=strides,
+                            depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs))
+
+    def depthwise_conv2d(self, filters: int, kernel: IntOrPair, strides=(1, 1), padding='valid', depth_multiplier=1,
+                         activation='relu', **kwargs):
+        self.add_layer(dict(type='keras', layer='DepthwiseConv2D', filters=filters, kernel_size=kernel, strides=strides,
+                            depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs))
+
+    def max_pool2d(self, window=2, stride=2, padding='same'):
+        self.add_layer(dict(type='pool2d', reduction='max', window=window, stride=stride, padding=padding))
+
+    def global_pooling(self, reduction: str):
+        self.add_layer(dict(type='pooling', reduction=reduction))
+
+    def global_avg_pooling(self):
+        self.global_pooling(reduction='mean')
+
+    def flatten(self):
+        self.add_layer(dict(type='flatten'))
+
+    def dense(self, units: int, activation='relu', dropout=0.0):
+        self.add_layer(dict(type='dense', size=units, activation=activation, dropout=dropout))
+
+    def conv2d_max_pool(self, filters, kernels: List[IntOrPair], strides: List[IntOrPair], activation='relu',
+                        dropout=0.0, filter_increase=2):
+        assert len(kernels) == len(strides)
+
+        for kernel, stride in zip(kernels, strides):
+            self.conv2d(filters, kernel, stride, activation=activation, dropout=dropout)
+            filters = filters * filter_increase
+
+        self.max_pool2d()
 
 
 class Networks:
@@ -181,6 +319,38 @@ class Networks:
         network.append(dict(type='pooling', reduction='mean'))
         Networks.output_layer(network, output)
 
+        return network
+
+    @staticmethod
+    def nvidia(inputs: str, output: str, filters=24, global_pool=False, units: List[int] = None,
+               normalization='batch', activation='relu', dense_activation='relu') -> List[dict]:
+        """Mimics the CNN described in the paper End-to-end Learning for Self-Driving Cars."""
+        units = [1164, 100, 50, 10] if units is None else units
+
+        # network architecture
+        network = []
+        Networks.input_layer(network, inputs)
+
+        if normalization == 'batch':
+            network.append(Layers.batch_normalization())
+        elif normalization == 'layer':
+            network.append(Layers.layer_normalization())
+
+        network.append(Layers.conv2d_max_pool(filters * 1.0, kernels=[5], strides=[1], activation=activation))
+        network.append(Layers.conv2d_max_pool(filters * 1.5, kernels=[5], strides=[1], activation=activation))
+
+        network.append(Layers.conv2d_max_pool(filters * 2.0, kernels=[3], strides=[1], activation=activation))
+        network.append(Layers.conv2d_max_pool(filters * 2.5, kernels=[3], strides=[1], activation=activation))
+
+        if global_pool:
+            network.append(Layers.global_avg_pooling())
+        else:
+            network.append(Layers.flatten())
+
+        for neurons in units:
+            network.append(Layers.dense(neurons, activation=dense_activation))
+
+        Networks.output_layer(network, output)
         return network
 
     @staticmethod
@@ -412,6 +582,10 @@ class Specifications:
                                              global_pool=args.get('global_pool', 'mean'),
                                              normalization=args.get('normalization', 'layer'))
             networks.append(feature_net)
+
+        # network for 'past_skill'
+        networks.append(Networks.dense(inputs='past_skills', output='past_skills_out', units=32, layers=3,
+                                       activation='tanh', dropout=dropout))
 
         return Networks.complex(networks=networks, layers=final.get('layers', 2),
                                 activation=final.get('activation', 'none'), units=final.get('units', 256))

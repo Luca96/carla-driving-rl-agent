@@ -6,9 +6,10 @@ from typing import Optional
 from pygame.constants import K_q, K_UP, K_w, K_LEFT, K_a, K_RIGHT, K_d, K_DOWN, K_s, K_SPACE, K_ESCAPE, KMOD_CTRL
 
 from tensorforce import Agent
+from tensorforce.agents import PPOAgent
 
 from agents.specifications import Specifications as Specs
-from agents.environment import SynchronousCARLAEnvironment
+from agents.environment import SynchronousCARLAEnvironment, CARLAEvent
 
 from navigation import LocalPlanner
 
@@ -148,7 +149,7 @@ class Agents:
     @staticmethod
     def ppo(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size=1, subsampling_fraction=0.25,
             optimization_steps=10, discount=0.99, name='ppo', learning_rate=3e-4, critic_optimizer: dict = None,
-            filters=32, dropout=0.0, final_units=200, **kwargs) -> Agent:
+            filters=32, dropout=0.0, final_units=200, **kwargs) -> PPOAgent:
         policy_net = Specs.network_v2(conv=dict(activation='leaky-relu', filters=filters),
                                       final=dict(activation='tanh', units=final_units),
                                       dropout=dropout)
@@ -171,7 +172,7 @@ class Agents:
     @staticmethod
     def ppo3(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, time_horizon: int, batch_size=1,
              optimization_steps=10, discount=0.99, name='ppo3', learning_rate=3e-4, critic_optimizer: dict = None,
-             dropout=0.0, subsampling_fraction=0.25, **kwargs) -> Agent:
+             dropout=0.0, subsampling_fraction=0.25, **kwargs) -> PPOAgent:
         assert time_horizon > 0
         t = time_horizon
 
@@ -279,6 +280,7 @@ class PretrainingAgent(DummyAgent):
                                   **kwargs)
         self.env = env
         self.index = 0
+        self.max_timesteps = max_episode_timesteps
         self.use_speed_limit = use_speed_limit
 
         # Behaviour planner:
@@ -287,15 +289,15 @@ class PretrainingAgent(DummyAgent):
 
         self.local_planner = None
 
+        # register to environment's events:
+        self.env.register_event(event=CARLAEvent.RESET, callback=self.reset)
+
     def reset(self):
+        print('agent.reset')
         self.index = 0
-        self.local_planner.reset_vehicle()
         self.local_planner = LocalPlanner(vehicle=self.env.vehicle, opt_dict=self.options)
 
     def act(self, states, **kwargs):
-        if self.local_planner is None:
-            self.local_planner = LocalPlanner(vehicle=self.env.vehicle, opt_dict=self.options)
-
         if self.use_speed_limit:
             self.local_planner.set_speed(speed=self.env.vehicle.get_speed_limit())
 
@@ -306,13 +308,14 @@ class PretrainingAgent(DummyAgent):
         actions, skill_name = self.env.control_to_actions(control)
 
         # hack: record "custom" (not constant) actions
-        for name in self.agent.actions_spec.keys():
-            if isinstance(actions, dict):
+        if isinstance(actions, dict):
+            for name in self.agent.actions_spec.keys():
                 self.agent.actions_buffers[name][0, self.index] = actions[name]
-            else:
+        else:
+            for name in self.agent.actions_spec.keys():
                 self.agent.actions_buffers[name][0, self.index] = actions
 
-        self.index += 1
+        self.index = (self.index + 1) % self.max_timesteps
         return actions
 
     def load(self, **kwargs):

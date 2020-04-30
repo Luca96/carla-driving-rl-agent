@@ -1,10 +1,11 @@
 import os
 import math
+import enum
 import carla
 import pygame
 import numpy as np
 
-from typing import Optional
+from typing import Optional, TypedDict, Callable
 from datetime import datetime
 
 from tensorforce import Environment, Agent
@@ -17,6 +18,11 @@ from navigation import Route, RoutePlanner
 from tools import misc, utils
 from tools.utils import WAYPOINT_DICT, profile
 from tools.synchronous_mode import CARLASyncContext
+
+
+class CARLAEvent(enum.Enum):
+    """Available events (callbacks) related to CARLAEnvironment"""
+    RESET = 0
 
 
 class SynchronousCARLAEnvironment(Environment):
@@ -69,6 +75,9 @@ class SynchronousCARLAEnvironment(Environment):
     # Road: intersection (bool), junction (bool), speed_limit, traffic_light (presence + state), lane_width,
     #       lane_change, left_lane, right_lane
     ROAD_FEATURES_SPEC = dict(type='float', shape=(10,))
+
+    # events:
+    EVENTS = {'reset', }
 
     # TODO: add a loading map functionality (specified or at random) - load_map
     def __init__(self, address='localhost', port=2000, timeout=2.0, image_shape=(150, 200, 3), window_size=(800, 600),
@@ -154,6 +163,9 @@ class SynchronousCARLAEnvironment(Environment):
         self.sensors_spec = sensors if isinstance(sensors, dict) else self.default_sensors()
         self.sensors = dict()
 
+        # events and callbacks
+        self.events: TypedDict[CARLAEvent, Callable] = dict()
+
     def states(self):
         # TODO: when stacking feature vectors, reshape them into a 2D matrix so that convolutions can be applied!!
         # TODO: consider to include past (more than one) skills, but one-hot encoded!
@@ -168,6 +180,7 @@ class SynchronousCARLAEnvironment(Environment):
     def reset(self, soft=False) -> dict:
         print('env.reset(soft=True)') if soft else print('env.reset')
         self._reset_world(soft=soft)
+        self.trigger_event(event=CARLAEvent.RESET)
 
         # reset actions
         self.control = carla.VehicleControl()
@@ -322,6 +335,21 @@ class SynchronousCARLAEnvironment(Environment):
         else:
             self.collision_penalty += penalty * impulse
             self.should_terminate = False
+
+    def register_event(self, event: CARLAEvent, callback):
+        """Registers a given [callback] to a specific [event]"""
+        assert isinstance(event, CARLAEvent)
+        assert callable(callback)
+
+        callbacks = self.events.get(event, [])
+        callbacks.append(callback)
+        self.events[event] = callbacks
+
+    def trigger_event(self, event: CARLAEvent, **kwargs):
+        """Cause the call of every callback registered for event [event]"""
+        print(f'Event {str(event)} triggered.')
+        for callback in self.events.get(event, []):
+            callback(**kwargs)
 
     def render(self, sensors_data: dict):
         """Renders sensors' output"""

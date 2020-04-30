@@ -6,7 +6,7 @@ import carla
 import pygame
 import numpy as np
 
-from typing import Optional
+from typing import Optional, ClassVar
 from tensorforce import Agent
 
 from agents import Agents, SensorSpecs, Specs
@@ -133,8 +133,8 @@ class RouteFollowExperiment(SynchronousCARLAEnvironment):
     DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0])
 
     # A "skill" is a high-level action
-    SKILLS = {0: 'idle',     1: 'brake',
-              2: 'forward',  3: 'forward left',  4: 'forward right',
+    SKILLS = {0: 'idle', 1: 'brake',
+              2: 'forward', 3: 'forward left', 4: 'forward right',
               5: 'backward', 6: 'backward left', 7: 'backward right'}
 
     # speed, vehicle control (4), accelerometer (3), gyroscope (3), target waypoint's features (5), compass
@@ -347,14 +347,19 @@ class RadarSegmentationExperiment(RouteFollowExperiment):
 class CompleteStateExperiment(RouteFollowExperiment):
     """Equips sensors: semantic camera + depth camera + radar"""
 
-    # # skill, throttle or brake, steer, reverse
-    # ACTIONS_SPEC = dict(type='float', shape=(4,), min_value=-1.0, max_value=1.0)
-    # DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0, 0.0])
-    #
-    # # skills: high-level actions
-    # SKILLS = {0: 'idle',     1: 'brake',
-    #           2: 'forward',  3: 'forward left',  4: 'forward right',
-    #           5: 'backward', 6: 'backward left', 7: 'backward right'}
+    # Control: throttle or brake, steer, reverse
+    CONTROL_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
+    DEFAULT_CONTROL = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+    # Skills: high-level actions
+    SKILLS = {0: 'wait', 1: 'brake',
+              2: 'steer right', 3: 'steer left',
+              4: 'forward', 5: 'forward left', 6: 'forward right',
+              7: 'backward', 8: 'backward left', 9: 'backward right'}
+    DEFAULT_SKILL = np.array([0.0], dtype=np.float32)
+    SKILL_SPEC = dict(type='float', shape=1, min_value=0.0, max_value=len(SKILLS) - 1.0)
+
+    DEFAULT_ACTIONS = dict(control=DEFAULT_CONTROL, skill=DEFAULT_SKILL)
 
     def __init__(self, time_horizon=5, *args, **kwargs):
         assert isinstance(time_horizon, int)
@@ -366,12 +371,12 @@ class CompleteStateExperiment(RouteFollowExperiment):
         self.image_shape = self.image_shape[:2] + (time_horizon,)  # consider grayscale images
         # self.radar_obs_per_step = math.floor(1500 / self.fps) + 1
 
-        # TODO: could be unnecessary to have defaults thanks to skip()!
         # TODO: try dtype=np.float16 to save memory
         # features' default values (add a temporal axis)
         # NOTE: features are 2D-arrays so that applying convolutions is more efficiently than recurrences
         self.DEFAULT_VEHICLE = np.zeros((time_horizon, self.VEHICLE_FEATURES_SPEC['shape'][0]), dtype=np.float32)
-        self.EMPTY_ACTIONS = np.zeros((time_horizon, self.DEFAULT_ACTIONS.shape[0]), dtype=np.float32)
+        self.DEFAULT_SKILLS = np.zeros((time_horizon,), dtype=np.float32)
+        self.EMPTY_ACTIONS = np.zeros((time_horizon, self.DEFAULT_CONTROL.shape[0]), dtype=np.float32)
         self.DEFAULT_RADAR = np.zeros((50 * time_horizon, 4), dtype=np.float32)
         self.DEFAULT_IMAGE = np.zeros(self.image_shape, dtype=np.float32)
         self.DEFAULT_ROAD = np.zeros((time_horizon, self.ROAD_FEATURES_SPEC['shape'][0]), dtype=np.float32)
@@ -379,6 +384,7 @@ class CompleteStateExperiment(RouteFollowExperiment):
         # empty observations (to be filled on temporal axis)
         self.actions_obs = self.EMPTY_ACTIONS.copy()
         self.vehicle_obs = self.DEFAULT_VEHICLE.copy()
+        self.skills_obs = self.DEFAULT_SKILLS.copy()
         self.radar_obs = self.DEFAULT_RADAR.copy()
         self.image_obs = self.DEFAULT_IMAGE.copy()
         self.road_obs = self.DEFAULT_ROAD.copy()
@@ -393,11 +399,18 @@ class CompleteStateExperiment(RouteFollowExperiment):
         return sensors
 
     def states(self):
+        # TODO: consider adding 'rewards' to state space!
         return dict(image=dict(shape=self.image_shape),
                     radar=dict(type='float', shape=self.DEFAULT_RADAR.shape),
                     road=dict(type='float', shape=self.DEFAULT_ROAD.shape),
                     vehicle=dict(type='float', shape=self.DEFAULT_VEHICLE.shape),
-                    past_actions=dict(type='float', shape=self.EMPTY_ACTIONS.shape))
+                    past_actions=dict(type='float', shape=self.EMPTY_ACTIONS.shape),
+                    past_skills=dict(type='float', shape=self.DEFAULT_SKILLS.shape, min_value=0.0,
+                                     max_value=len(self.SKILLS) - 1.0))
+
+    def actions(self):
+        return dict(control=self.CONTROL_SPEC,
+                    skill=self.SKILL_SPEC)
 
     def execute(self, actions, record_path: str = None):
         state, terminal, reward = super().execute(actions, record_path=record_path)
@@ -405,29 +418,89 @@ class CompleteStateExperiment(RouteFollowExperiment):
 
         return state, terminal, reward
 
+    def reward(self, actions, time_cost=-1.0, b=2.0, c=2.0, d=2.0, k=6.0):
+        # normalize reward to [-k, +1] where 'k' is an arbitrary multiplier representing a big negative value
+        v = max(utils.speed(self.vehicle), 1.0)
+        r = super().reward(actions)
+        r = max(r, -k * v)
+        return (r / v) + self.action_penalty(actions)
+
     def reset(self, soft=False) -> dict:
         self.time_index = 0
         self.radar_index = 0
 
         # reset observations (np.copyto() should reuse memory...)
         np.copyto(self.actions_obs, self.EMPTY_ACTIONS)
-        np.copyto(self.vehicle_obs, self.DEFAULT_VEHICLE)
-        np.copyto(self.radar_obs, self.DEFAULT_RADAR)
         np.copyto(self.road_obs, self.DEFAULT_ROAD)
+        np.copyto(self.radar_obs, self.DEFAULT_RADAR)
         np.copyto(self.image_obs, self.DEFAULT_IMAGE)
+        np.copyto(self.skills_obs, self.DEFAULT_SKILLS)
+        np.copyto(self.vehicle_obs, self.DEFAULT_VEHICLE)
 
         return super().reset(soft=soft)
 
-    # def actions_to_control(self, actions):
-    #     """Specifies the mapping between an actions vector and the vehicle's control."""
-    #     self.control.throttle = float(actions[1]) if actions[1] > 0 else 0.0
-    #     self.control.brake = float(-actions[1]) if actions[1] < 0 else 0.0
-    #     self.control.steer = float(actions[2])
-    #     self.control.reverse = bool(actions[3] > 0)
-    #     self.control.hand_brake = False
-    #
-    # def action_penalty(self):
-    #     pass
+    def actions_to_control(self, actions):
+        """Specifies the mapping between an actions vector and the vehicle's control."""
+        actions = actions['control']
+        self.control.throttle = float(actions[0]) if actions[0] > 0 else 0.0
+        self.control.brake = float(-actions[0]) if actions[0] < 0 else 0.0
+        self.control.steer = float(actions[1])
+        self.control.reverse = bool(actions[2] > 0)
+        self.control.hand_brake = False
+
+    def get_skill_name(self):
+        """Returns skill's name"""
+        index = round(self.prev_actions['skill'][0])
+        return self.SKILLS[index]
+
+    @staticmethod
+    def action_penalty(actions, eps=0.05) -> float:
+        """Returns the amount of coordination, defined as the number of actions that agree with the skill"""
+        skill = round(actions['skill'][0])
+        a0, steer, a2 = actions['control']
+        num_actions = len(actions['control'])
+        throttle = max(a0, 0.0)
+        reverse = a2 > 0
+        count = 0
+
+        # wait/noop
+        if skill == 0:
+            count += 1 if throttle > eps else 0
+
+        # brake
+        elif skill == 1:
+            count += 1 if throttle > eps else 0
+
+        # steer right/left
+        elif skill in [2, 3]:
+            count += 1 if -eps <= steer <= eps else 0
+            count += 1 if throttle > eps else 0
+
+        # forward right/left
+        elif skill in [4, 5, 6]:
+            count += 1 if reverse else 0
+            count += 1 if throttle < eps else 0
+
+            if skill == 4:
+                count += 0 if -eps <= steer <= eps else 1
+            elif skill == 5:
+                count += 1 if steer > -eps else 0
+            else:
+                count += 1 if steer < eps else 0
+
+        # backward right/left
+        elif skill in [7, 8, 9]:
+            count += 1 if not reverse else 0
+            count += 1 if throttle < eps else 0
+
+            if skill == 7:
+                count += 0 if -eps <= steer <= eps else 1
+            elif skill == 8:
+                count += 1 if steer > -eps else 0
+            else:
+                count += 1 if steer < eps else 0
+
+        return num_actions - count
 
     # def render(self, sensors_data: dict):
     #     # depth = camera.convert(data)
@@ -444,11 +517,18 @@ class CompleteStateExperiment(RouteFollowExperiment):
         data['radar'] = self.sensors['radar'].convert(data['radar'])
         return data
 
+    def debug_text(self, actions):
+        text = super().debug_text(actions)
+        text[-1] = 'Skill (%d) = %s' % (round(self.prev_actions['skill'][0]), self.get_skill_name())
+        text.append('Coordination %d' % self.action_penalty(actions))
+
+        return text
+
     def _get_observation(self, sensors_data: dict) -> dict:
         if len(sensors_data.keys()) == 0:
             # sensor_data is empty so, return a default observation
             return dict(image=self.DEFAULT_IMAGE, radar=self.DEFAULT_RADAR, vehicle=self.DEFAULT_VEHICLE,
-                        road=self.DEFAULT_ROAD, past_actions=self.EMPTY_ACTIONS)
+                        road=self.DEFAULT_ROAD, past_actions=self.EMPTY_ACTIONS, past_skills=self.DEFAULT_SKILLS)
 
         # grayscale image, plus -1, +1 scaling
         image = (2 * env_utils.cv2_grayscale(sensors_data['camera']) - 255.0) / 255.0
@@ -457,7 +537,8 @@ class CompleteStateExperiment(RouteFollowExperiment):
 
         # concat new observations along the temporal axis:
         self.vehicle_obs[t] = self._get_vehicle_features()
-        self.actions_obs[t] = self.prev_actions.copy()
+        self.actions_obs[t] = self.prev_actions['control'].copy()
+        self.skills_obs[t] = self.prev_actions['skill'].copy()
         self.road_obs[t] = self._get_road_features()
         self.image_obs[:, :, t] = image
 
@@ -468,7 +549,7 @@ class CompleteStateExperiment(RouteFollowExperiment):
 
         # observation
         return dict(image=self.image_obs, radar=self.radar_obs, vehicle=self.vehicle_obs,
-                    road=self.road_obs, past_actions=self.actions_obs)
+                    road=self.road_obs, past_actions=self.actions_obs, past_skills=self.skills_obs)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -522,13 +603,13 @@ class CARLAPlayEnvironment(RouteFollowExperiment):
             self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)
 
 
-class PLayEnvironment2(RadarSegmentationExperiment, CARLAPlayEnvironment):
+class PlayEnvironment2(RadarSegmentationExperiment, CARLAPlayEnvironment):
 
     def before_world_step(self):
         pass
 
 
-class PLayEnvironment3(CompleteStateExperiment, CARLAPlayEnvironment):
+class PlayEnvironment3(CompleteStateExperiment, CARLAPlayEnvironment):
 
     def before_world_step(self):
         pass
@@ -544,7 +625,7 @@ class CARLAPretrainExperiment(CompleteStateExperiment):
     def default_agent(self, **kwargs) -> Agent:
         return Agents.pretraining(self, speed=30.0, **kwargs)
 
-    def reward(self, actions, time_cost=-1.0, b=-1000.0, c=2.0, d=2.0):
+    def reward(self, actions, time_cost=-1.0, b=2.0, c=2.0, d=2.0, k=6.0):
         speed = utils.speed(self.vehicle)
         direction_penalty = speed + 1
         speed_limit = self.vehicle.get_speed_limit()
@@ -554,63 +635,71 @@ class CARLAPretrainExperiment(CompleteStateExperiment):
         else:
             speed_penalty = c * (speed_limit - speed)
 
-        return time_cost - self.collision_penalty + direction_penalty + speed_penalty
+        r = time_cost - self.collision_penalty + direction_penalty + speed_penalty
+
+        # normalize
+        v = max(speed, 1.0)
+        r = max(r, -k * v)
+        return (r / v) + self.action_penalty(actions)
 
     @staticmethod
-    def _skill_from_control(control: carla.VehicleControl, eps=0.1) -> (float, str):
-        throttle = control.throttle
-        steer = control.steer
-        brake = control.brake
-        reverse = control.reverse
+    def action_penalty(actions, eps=0.05) -> float:
+        ap = CompleteStateExperiment.action_penalty(actions)
+        assert ap == len(actions['control'])
+        return ap
 
-        if (throttle <= eps) and (brake > eps):
-            return -0.75, 'brake'
+    def _skill_from_control(self, control: carla.VehicleControl, eps=0.05) -> (float, str):
+        t = control.throttle
+        s = control.steer
+        b = control.brake
+        r = control.reverse
 
-        elif reverse:
-            if (throttle > eps) and (brake <= eps):
-                if steer > eps:
-                    return 0.7, 'backward left'
-                elif steer < -eps:
-                    return 0.9, 'backward right'
-                else:
-                    return 0.4, 'backward'
-
-
-        if (throttle <= eps) and (brake > eps):
-            return -0.75, 'brake'
-        elif not reverse:
-            if (throttle > eps) and (brake <= eps) and (-eps / 2.0 < steer < eps / 2.0):
-                return -0.45, 'forward'
-            elif (throttle > eps) and (brake == 0.0) and (steer < 0.0):
-                return -0.15, 'forward left'
-            elif (throttle > 0.0) and (brake == 0.0) and (steer > 0.0):
-                return 0.1, 'forward right'
+        # backward:
+        if r and (t > eps) and (b <= eps):
+            if s > eps:
+                skill = 9
+            elif s < -eps:
+                skill = 8
             else:
-                return -1.0, 'idle'
+                skill = 7
+        # forward:
+        elif (not r) and (t > eps) and (b <= eps):
+            if s > eps:
+                skill = 6
+            elif s < -eps:
+                skill = 5
+            else:
+                skill = 4
+        # steer:
+        elif (t <= eps) and (b <= eps):
+            if s > eps:
+                skill = 2
+            elif s < -eps:
+                skill = 3
+            else:
+                skill = 0
+        # brake:
+        elif b > eps:
+            skill = 1
         else:
-            if (throttle > 0.0) and (brake == 0.0) and (steer == 0.0):
-                return 0.4, 'backward'
-            elif (throttle > 0.0) and (brake == 0.0) and (steer > 0.0):
-                return 0.7, 'backward left'
-            elif (throttle > 0.0) and (brake == 0.0) and (steer < 0.0):
-                return 0.9, 'backward right'
+            skill = 0
 
-    # def control_to_actions(self, control: carla.VehicleControl):
-    #     skill, name = self._skill_from_control(control)
-    #
-    #     if control.throttle > 0.0:
-    #         return [skill, control.throttle, control.steer], name
-    #     else:
-    #         return [skill, control.brake, control.steer], name
+        return skill, self.SKILLS[skill]
 
     def control_to_actions(self, control: carla.VehicleControl):
         skill, name = self._skill_from_control(control)
+        skill = np.array([skill], dtype=np.float32)
+        steer = control.steer
+        reverse = bool(control.reverse > 0)
 
         if control.throttle > 0.0:
-            return [skill, control.throttle, control.steer, control.reverse], name
+            return dict(control=[control.throttle, steer, reverse], skill=skill), name
         else:
-            return [skill, -control.brake, control.steer, control.reverse], name
+            return dict(control=[-control.brake, steer, reverse], skill=skill), name
 
+    def debug_text(self, actions):
+        text = super().debug_text(actions)
+        return text[:11] + text[14:]
 
 # -------------------------------------------------------------------------------------------------
 # -- Curriculum Learning Experiment

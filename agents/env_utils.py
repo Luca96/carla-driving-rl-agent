@@ -1,4 +1,11 @@
-"""Utility functions for environment.py"""
+"""Utility functions for CARLAEnvironment organized by subject:
+    - PyGame-related,
+    - CARLA-related,
+    - various (graphics, file, ...)
+    - math-related.
+
+   @author: Luca Anzalone
+"""
 
 import os
 import cv2
@@ -239,12 +246,24 @@ def save_agent(agent: Agent, agent_name: str, directory: str, separate_dir=True)
     return checkpoint_path
 
 
-def get_record_path(base_dir: str, prefix='ep', pattern='-'):
-    dirs = sorted(os.listdir(base_dir))
-    count = 0
+def get_record_path(base_dir: str, prefix='ep', pattern='-') -> str:
+    """Recording directory is organized as follows:
+        - A [base_dir], usually `data/recordings` is the main folder.
+        - Each new recording is stored within a new folder, named [prefix][pattern][count] where [count] is a number.
+        - By default: [prefix] is 'ep' and [pattern] is '-'. So the folders within [base_dir] will be named 'ep-0',
+          'ep-1', and so on. The idea is to separate recordings by the episode number.
+       :returns a path.
+    """
+    if not os.path.isdir(base_dir):
+        # create base_dir if not exists
+        os.mkdir(base_dir)
+        count = 0
+    else:
+        dirs = sorted(os.listdir(base_dir))
+        count = 0
 
-    if len(dirs) > 0:
-        count = 1 + int(dirs[-1].split(pattern)[1])
+        if len(dirs) > 0:
+            count = 1 + int(dirs[-1].split(pattern)[1])
 
     record_path = os.path.join(base_dir, f'{prefix}{pattern}{count}')
     os.mkdir(record_path)

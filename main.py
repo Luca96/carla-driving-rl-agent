@@ -28,10 +28,19 @@ if __name__ == '__main__':
     # tests.test_baseline_env()
     # tests.test_sequence_layer()
     # tests.test_pretrain_env()
-    # tests.test_keyboard_agent(version=2)
+    # tests.test_keyboard_agent(version=-2)
     # tests.carla_wrapper()
     # tests.ppo_experiment(num_episodes=30, num_timesteps=512, load=True, image_shape=(75, 105, 3))  # 70k steps
-    # tests.complete_state(num_episodes=5, num_timesteps=512, load=True, image_shape=(75, 105, 3), time_horizon=10,
+
+    # tests.complete_state(num_episodes=3, num_timesteps=64, load=False, image_shape=(75, 105, 3), time_horizon=10,
     #                      optimization_steps=5)
+
+    # TODO: record experience with different vehicles and weather!
+    tests.collect_experience(num_episodes=256, num_timesteps=512, image_shape=(75, 105, 3))
+
+    # tests.pretrain_then_train(num_episodes=10, num_timesteps=512, image_shape=(75, 105, 3), time_horizon=10,
+    #                           traces_dir='data/traces/pretrain-ppo3-complete',
+    #                           num_traces=1, num_iterations=128, num_updates=3,
+    #                           weights_dir='weights/agents/pretrain-ppo3-complete')
 
     pygame.quit()
