@@ -141,8 +141,7 @@ def profile(fn):
         ret = fn(*args, **kwargs)
 
         elapsed_time = time.time() - start_time
-        # print(f'[PROFILE] Function <{fn.__name__}> takes {round(elapsed_time / 1000.0, 4)}ms.')
-        # print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
+        print(f'[PROFILE] <{fn.__name__}> takes {round(elapsed_time, 4)}ms.')
 
         return ret
 

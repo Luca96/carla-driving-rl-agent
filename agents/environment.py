@@ -5,7 +5,7 @@ import carla
 import pygame
 import numpy as np
 
-from typing import Optional, TypedDict, Callable
+from typing import Optional, TypedDict, Callable, List
 from datetime import datetime
 
 from tensorforce import Environment, Agent
@@ -20,11 +20,15 @@ from tools.utils import WAYPOINT_DICT, profile
 from tools.synchronous_mode import CARLASyncContext
 
 
+# TODO: add more events
 class CARLAEvent(enum.Enum):
     """Available events (callbacks) related to CARLAEnvironment"""
     RESET = 0
 
 
+# TODO: change name 'train' to 'learn'. Then, one should specify the entire training (episodes, timesteps,
+#  saving freq. and so on) just one time, training data should be written in a checkpoint file so that training can
+#  be later resumed. -> add the same feature to curriculum-learning training procedure.
 class SynchronousCARLAEnvironment(Environment):
     """A TensorForce Environment for the [CARLA driving simulator](https://github.com/carla-simulator/carla).
         - This environment is "synchronized" with the server, meaning that the server waits for a client tick. For a
@@ -75,9 +79,6 @@ class SynchronousCARLAEnvironment(Environment):
     # Road: intersection (bool), junction (bool), speed_limit, traffic_light (presence + state), lane_width,
     #       lane_change, left_lane, right_lane
     ROAD_FEATURES_SPEC = dict(type='float', shape=(10,))
-
-    # events:
-    EVENTS = {'reset', }
 
     # TODO: add a loading map functionality (specified or at random) - load_map
     def __init__(self, address='localhost', port=2000, timeout=2.0, image_shape=(150, 200, 3), window_size=(800, 600),
@@ -177,6 +178,10 @@ class SynchronousCARLAEnvironment(Environment):
     def actions(self):
         return self.ACTIONS_SPEC
 
+    def policy_network(self, **kwargs) -> List[dict]:
+        """Defines the agent's policy network architecture"""
+        raise NotImplementedError
+
     def reset(self, soft=False) -> dict:
         print('env.reset(soft=True)') if soft else print('env.reset')
         self._reset_world(soft=soft)
@@ -219,7 +224,6 @@ class SynchronousCARLAEnvironment(Environment):
 
         return time_cost - self.collision_penalty + waypoint_term + direction_penalty + speed_penalty
 
-    @profile
     def execute(self, actions, record_path: str = None):
         self.prev_actions = actions
 
@@ -245,7 +249,7 @@ class SynchronousCARLAEnvironment(Environment):
     def terminal_condition(self, distance_threshold=10.0):
         """Tells whether the episode is terminated or not."""
         return self.should_terminate or \
-               (self.route.distance_to_destination(self.vehicle.get_location()) < distance_threshold)
+              (self.route.distance_to_destination(self.vehicle.get_location()) < distance_threshold)
 
     def close(self):
         print('env.close')
@@ -257,8 +261,12 @@ class SynchronousCARLAEnvironment(Environment):
         for sensor in self.sensors.values():
             sensor.destroy()
 
+    @profile
+    def get_actions(self, agent, states):
+        return agent.act(states)
+
     def train(self, agent: Optional[Agent], num_episodes: int, max_episode_timesteps: int, weights_dir='weights/agents',
-              agent_name='carla-agent', load_agent=False, record_dir='data/recordings', skip_frames=25):
+              agent_name='carla-agent', record_dir='data/recordings', skip_frames=25):
         record_path = None
         should_record = isinstance(record_dir, str)
         should_save = isinstance(weights_dir, str)
@@ -267,45 +275,38 @@ class SynchronousCARLAEnvironment(Environment):
             print(f'Using default agent...')
             agent = self.default_agent(max_episode_timesteps=max_episode_timesteps)
 
-        try:
-            if load_agent:
-                agent.load(directory=os.path.join(weights_dir, agent_name), filename=agent_name, environment=self,
-                           format='tensorflow')
-                print('Agent loaded.')
+        # TODO: introduce callbacks: 'on_episode_start', 'on_episode_end', 'on_update', 'on_record', ..,
+        for episode in range(num_episodes):
+            states = self.reset()
+            total_reward = 0.0
 
-            # TODO: introduce callbacks: 'on_episode_start', 'on_episode_end', 'on_update', 'on_record', ..,
-            for episode in range(num_episodes):
-                states = self.reset()
-                total_reward = 0.0
+            if should_record:
+                record_path = env_utils.get_record_path(base_dir=record_dir)
+                print(f'Recording in {record_path}.')
 
-                if should_record:
-                    record_path = env_utils.get_record_path(base_dir=record_dir)
-                    print(f'Recording in {record_path}.')
+            with self.synchronous_context:
+                self.skip(num_frames=skip_frames)
+                t0 = datetime.now()
 
-                with self.synchronous_context:
-                    self.skip(num_frames=skip_frames)
-                    t0 = datetime.now()
+                for i in range(max_episode_timesteps):
+                    actions = agent.act(states)
+                    # actions = self.get_actions(agent, states)
+                    states, terminal, reward = self.execute(actions, record_path=record_path)
 
-                    for i in range(max_episode_timesteps):
-                        actions = agent.act(states)
-                        states, terminal, reward = self.execute(actions, record_path=record_path)
+                    total_reward += reward
+                    terminal = terminal or (i == max_episode_timesteps - 1)
 
-                        total_reward += reward
-                        terminal = terminal or (i == max_episode_timesteps - 1)
+                    if agent.observe(reward, terminal):
+                        print(f'{i + 1}/{max_episode_timesteps} -> update performed.')
 
-                        if agent.observe(reward, terminal):
-                            print(f'{i + 1}/{max_episode_timesteps} -> update performed.')
+                    if terminal:
+                        elapsed = str(datetime.now() - t0).split('.')[0]
+                        print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(total_reward, 2)}\n')
+                        break
 
-                        if terminal:
-                            elapsed = str(datetime.now() - t0).split('.')[0]
-                            print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(total_reward, 2)}\n')
-                            break
-
-                if should_save:
-                    env_utils.save_agent(agent, agent_name, directory=weights_dir)
-                    print('Agent saved.')
-        finally:
-            self.close()
+            if should_save:
+                env_utils.save_agent(agent, agent_name, directory=weights_dir)
+                print('Agent saved.')
 
     def default_sensors(self) -> dict:
         """Returns a predefined dict of sensors specifications"""
@@ -403,7 +404,7 @@ class SynchronousCARLAEnvironment(Environment):
         data['camera'] = self.sensors['camera'].convert_image(data['camera'])
         return data
 
-    @profile
+    # @profile
     def world_step(self, actions, record_path: str = None):
         """Applies the actions to the vehicle, and updates the CARLA's world"""
         # [pre-tick updates] Apply control to update the vehicle

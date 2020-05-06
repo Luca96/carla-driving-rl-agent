@@ -5,8 +5,10 @@ from tensorforce import Agent
 from typing import Optional, Union, List, Tuple, Dict, Callable
 from agents.environment import SynchronousCARLAEnvironment
 
+
 ListOrString = Optional[Union[str, List[str]]]
 IntOrPair = Union[int, Tuple[int, int]]
+IntOrList = Union[int, List[int]]
 
 
 class Objectives:
@@ -93,75 +95,39 @@ class Optimizers:
                     fraction=fraction)
 
 
-class Layers:
-    """Wraps some TensorForce's layers"""
-
-    @staticmethod
-    def layer_normalization() -> dict:
-        return dict(type='keras', layer='LayerNormalization')
-
-    @staticmethod
-    def batch_normalization() -> dict:
-        return dict(type='keras', layer='BatchNormalization')
-
-    @staticmethod
-    def gaussian_noise(stddev: float) -> dict:
-        return dict(type='keras', layer='GaussianNoise', stddev=stddev)
-
-    @staticmethod
-    def spatial_dropout(rate: float) -> dict:
-        return dict(type='keras', layer='SpatialDropout2D', rate=rate)
-
-    @staticmethod
-    def separable_conv2d(filters: int, kernel: IntOrPair, strides=(1, 1), padding='valid', depth_multiplier=1,
-                         activation='relu', **kwargs) -> dict:
-        return dict(type='keras', layer='SeparableConv2D', filters=filters, kernel_size=kernel, strides=strides,
-                    depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs)
-
-    @staticmethod
-    def depthwise_conv2d(filters: int, kernel: IntOrPair, strides=(1, 1), padding='valid', depth_multiplier=1,
-                         activation='relu', **kwargs) -> dict:
-        return dict(type='keras', layer='DepthwiseConv2D', filters=filters, kernel_size=kernel, strides=strides,
-                    depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs)
-
-    @staticmethod
-    def global_pool(reduction: str) -> dict:
-        return dict(type='pooling', reduction=reduction)
-
-    @staticmethod
-    def global_avg_pooling() -> dict:
-        return dict(type='pooling', reduction='mean')
-
-    @staticmethod
-    def flatten() -> dict:
-        return dict(type='flatten')
-
-    @staticmethod
-    def dense(units: int, activation='relu', dropout=0.0) -> dict:
-        return dict(type='dense', size=units, activation=activation, dropout=dropout)
-
-    @staticmethod
-    def conv2d_max_pool(filters, kernels: List[IntOrPair], strides: List[IntOrPair], activation='relu',
-                        dropout=0.0, filter_increase=2) -> dict:
-        assert len(kernels) == len(strides)
-        layers = []
-
-        for kernel, stride in zip(kernels, strides):
-            layers.append(dict(type='conv2d', size=int(filters), window=kernel, stride=stride, activation=activation,
-                               dropout=dropout))
-            filters = filters * filter_increase
-
-        layers.append(dict(type='pool2d', reduction='max', window=2, stride=2))
-
-        return dict(type='block', layers=layers)
-
-
+# TODO: add **kwargs parameter
 class NetworkSpec:
     """Ease the creation of a custom network specification; it also wraps layers as class methods."""
 
-    def __init__(self, inputs: ListOrString = None):
-        self.layers = []
-        self.inputs(inputs)
+    def __init__(self, inputs: ListOrString = None, output: Optional[str] = None):
+        self.layers: List[dict] = []
+        self.inputs = None
+        self.output = None
+
+        if inputs is not None:
+            self.set_inputs(inputs)
+
+        if output is not None:
+            self.set_output(output)
+
+    def build(self) -> List[dict]:
+        """Returns a list of layers specifications representing the network's architecture.
+            - Note: both inputs and output must be not None!
+        """
+        if self.inputs is not None:
+            assert self.output is not None
+            layers = [self.inputs.copy()]
+        else:
+            assert self.output is None
+            layers = []
+
+        for layer in self.layers:
+            layers.append(layer.copy())
+
+        if self.output is not None:
+            layers.append(self.output.copy())
+
+        return layers
 
     def add_layer(self, layer: dict):
         self.layers.append(layer)
@@ -174,37 +140,35 @@ class NetworkSpec:
         assert kind in ['batch', 'layer', 'instance', 'exponential']
 
         if kind == 'batch':
-            self.layer_normalization()
-        elif kind == 'layer':
             self.batch_normalization()
+        elif kind == 'layer':
+            self.layer_normalization()
         elif kind == 'instance':
             self.instance_normalization()
         else:
             self.exponential_normalization()
 
-    def inputs(self, inputs: ListOrString = None):
+    def set_inputs(self, inputs: ListOrString, aggregation='concat'):
         """Input layer"""
-        if inputs is None:
-            return
-
         if isinstance(inputs, list):
             assert len(inputs) > 0
-            self.add_layer(dict(type='retrieve', tensors=inputs))
+            self.inputs = dict(type='retrieve', tensors=inputs, aggregation=aggregation)
 
         elif isinstance(inputs, str):
-            self.add_layer(dict(type='retrieve', tensors=[inputs]))
+            # self.inputs = dict(type='retrieve', tensors=[inputs], aggregation=aggregation)
+            self.inputs = dict(type='retrieve', tensors=inputs, aggregation=aggregation)
         else:
             raise ValueError(f'Argument `inputs` should be of type `str` or `List[str]`, not `{type(inputs)}`.')
 
-    def output(self, output: Optional[str] = None):
+    def set_output(self, output: Optional[str]):
         """Output layer"""
-        if output is None:
-            return
-
         if isinstance(output, str):
-            self.add_layer(dict(type='register', tensor=output))
+            self.output = dict(type='register', tensor=output)
         else:
             raise ValueError(f'Argument `output` should be of type `str`, not `{type(output)}`.')
+
+    def reshape(self, shape, **kwargs):
+        self.add_layer(dict(type='reshape', shape=shape, **kwargs))
 
     def layer_normalization(self):
         self.add_layer(dict(type='keras', layer='LayerNormalization'))
@@ -224,7 +188,8 @@ class NetworkSpec:
     def spatial_dropout(self, rate: float):
         self.add_layer(dict(type='keras', layer='SpatialDropout2D', rate=rate))
 
-    def conv2d(self, filters, kernel=3, stride=1, padding='same', activation='relu', dropout=0.0):
+    def conv2d(self, filters, kernel: IntOrPair = 3, stride: IntOrPair = 1, activation='relu', dropout=0.0,
+               padding='same'):
         self.add_layer(dict(type='conv2d', size=int(filters), window=kernel, stride=stride, padding=padding, bias=True,
                             activation=activation, dropout=dropout))
 
@@ -233,25 +198,36 @@ class NetworkSpec:
         self.add_layer(dict(type='keras', layer='SeparableConv2D', filters=filters, kernel_size=kernel, strides=strides,
                             depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs))
 
-    def depthwise_conv2d(self, filters: int, kernel: IntOrPair, strides=(1, 1), padding='valid', depth_multiplier=1,
+    def depthwise_conv2d(self, kernel: IntOrPair, strides=(1, 1), padding='valid', depth_multiplier=1,
                          activation='relu', **kwargs):
-        self.add_layer(dict(type='keras', layer='DepthwiseConv2D', filters=filters, kernel_size=kernel, strides=strides,
+        self.add_layer(dict(type='keras', layer='DepthwiseConv2D', kernel_size=kernel, strides=strides,
                             depth_multiplier=depth_multiplier, activation=activation, padding=padding, **kwargs))
 
+    def pool2d(self, reduction: str, window: int, stride: int, padding='same'):
+        self.add_layer(dict(type='pool2d', reduction=reduction, window=window, stride=stride, padding=padding))
+
     def max_pool2d(self, window=2, stride=2, padding='same'):
-        self.add_layer(dict(type='pool2d', reduction='max', window=window, stride=stride, padding=padding))
+        self.pool2d(reduction='max', window=window, stride=stride, padding=padding)
 
-    def global_pooling(self, reduction: str):
-        self.add_layer(dict(type='pooling', reduction=reduction))
+    def global_pooling(self, reduction: str, **kwargs):
+        self.add_layer(dict(type='pooling', reduction=reduction, **kwargs))
 
-    def global_avg_pooling(self):
-        self.global_pooling(reduction='mean')
+    def global_avg_pooling(self, **kwargs):
+        self.global_pooling(reduction='mean', **kwargs)
 
-    def flatten(self):
-        self.add_layer(dict(type='flatten'))
+    def flatten(self, **kwargs):
+        self.add_layer(dict(type='flatten', **kwargs))
 
     def dense(self, units: int, activation='relu', dropout=0.0):
         self.add_layer(dict(type='dense', size=units, activation=activation, dropout=dropout))
+
+    def embedding(self, size: int, num_embeddings=None, max_norm=None, activation='tanh', dropout=0.0):
+        self.add_layer(dict(type='embedding', size=size, num_embeddings=num_embeddings, max_norm=max_norm,
+                            activation=activation, bias=True, dropout=dropout))
+
+    def rnn(self, size: int, cell='gru', return_final_state=True, activation='tanh', dropout=0.0, **kwargs):
+        self.add_layer(dict(type='rnn', cell=cell, size=size, return_final_state=return_final_state,
+                            activation=activation, dropout=dropout, **kwargs))
 
     def conv2d_max_pool(self, filters, kernels: List[IntOrPair], strides: List[IntOrPair], activation='relu',
                         dropout=0.0, filter_increase=2):
@@ -275,160 +251,210 @@ class Networks:
                     internal_rnn=internal_rnn)
 
     @staticmethod
-    def input_layer(network: List[dict], inputs: ListOrString = None):
-        if inputs is None:
-            return
-
-        if isinstance(inputs, list):
-            assert len(inputs) > 0
-            network.append(dict(type='retrieve', tensors=inputs))
-
-        elif isinstance(inputs, str):
-            network.append(dict(type='retrieve', tensors=[inputs]))
-        else:
-            raise ValueError(f'Argument `inputs` should be of type `str` or `List[str]`, not `{type(inputs)}`.')
-
-    @staticmethod
-    def output_layer(network: List[dict], output: Optional[str] = None):
-        if output is None:
-            return
-
-        if isinstance(output, str):
-            network.append(dict(type='register', tensor=output))
-        else:
-            raise ValueError(f'Argument `output` should be of type `str`, not `{type(output)}`.')
-
-    @staticmethod
     def convolutional(inputs: ListOrString = None, output: str = None, initial_filters=32, kernel=(3, 3), pool='max',
                       activation='relu', stride=1, dropout=0.0, layers=2, normalization=None) -> List[dict]:
-        network = []
-        Networks.input_layer(network, inputs)
+        network = NetworkSpec()
+        network.set_inputs(inputs)
 
         for i in range(1, layers + 1):
-            network.append(dict(type='conv2d', size=initial_filters * i, window=kernel, stride=stride,
-                                activation=activation, dropout=dropout))
+            network.conv2d(initial_filters * i, kernel, stride, activation, dropout)
+            network.add_normalization(kind=normalization)
 
-            if normalization == 'batch':
-                network.append(Layers.batch_normalization())
-            elif normalization == 'layer':
-                network.append(Layers.layer_normalization())
+            if isinstance(pool, str):
+                network.pool2d(reduction=pool, window=2, stride=2)
 
-            if pool:
-                network.append(dict(type='pool2d', reduction=pool))
-
-        network.append(dict(type='pooling', reduction='mean'))
-        Networks.output_layer(network, output)
-
-        return network
+        network.global_avg_pooling()
+        network.set_output(output)
+        return network.build()
 
     @staticmethod
-    def nvidia(inputs: str, output: str, filters=24, global_pool=False, units: List[int] = None,
-               normalization='batch', activation='relu', dense_activation='relu') -> List[dict]:
+    def my_cnn(inputs: str, output: str, filters=32, activation1='tanh', activation2='elu', dropout=0.2, reshape=None,
+               layers=(2, 5), noise=0.05, middle_noise=False, normalization='instance', middle_normalization=False):
+        assert len(layers) == 2
+        network = NetworkSpec(inputs, output)
+
+        if isinstance(reshape, tuple):
+            network.reshape(shape=reshape)
+
+        network.add_normalization(kind=normalization)
+
+        if noise > 0.0:
+            network.gaussian_noise(stddev=noise)
+
+        # part 1:
+        for i in range(1, layers[0] + 1):
+            network.depthwise_conv2d(kernel=(3, 3), padding='same', depth_multiplier=1, activation=activation1)
+            network.conv2d(filters=filters * i, kernel=(3, 3), padding='same', activation=activation2)
+            network.spatial_dropout(rate=dropout)
+            network.max_pool2d(window=3, stride=2)
+
+        if middle_normalization:
+            network.add_normalization(kind=normalization)
+
+        if middle_noise:
+            network.gaussian_noise(stddev=noise)
+
+        # part 2:
+        for i in range(1, layers[1] + 1):
+            padding = 'same' if i % 2 == 0 else 'valid'
+            network.depthwise_conv2d(kernel=(3, 3), padding=padding, depth_multiplier=1, activation=activation1)
+            network.conv2d(filters=filters * (i + layers[0]), kernel=(3, 3), padding='valid', activation=activation2)
+            network.spatial_dropout(rate=dropout)
+
+        network.global_avg_pooling()
+        return network.build()
+
+    @staticmethod
+    def nvidia(inputs: str, output: str, filters=24, global_pool=False, units=[1164, 100, 50, 10],
+               normalization='batch', activation='relu', dropout=0.0) -> List[dict]:
         """Mimics the CNN described in the paper End-to-end Learning for Self-Driving Cars."""
-        units = [1164, 100, 50, 10] if units is None else units
+        network = NetworkSpec()
+        network.set_inputs(inputs)
+        network.add_normalization(kind=normalization)
 
-        # network architecture
-        network = []
-        Networks.input_layer(network, inputs)
+        # block 1: conv k5 -> max pool -> conv k5 -> max pool
+        network.conv2d_max_pool(filters, kernels=[5], strides=[1], activation=activation, dropout=dropout)
+        network.conv2d_max_pool(filters, kernels=[5], strides=[1], activation=activation, dropout=dropout)
 
-        if normalization == 'batch':
-            network.append(Layers.batch_normalization())
-        elif normalization == 'layer':
-            network.append(Layers.layer_normalization())
-
-        network.append(Layers.conv2d_max_pool(filters * 1.0, kernels=[5], strides=[1], activation=activation))
-        network.append(Layers.conv2d_max_pool(filters * 1.5, kernels=[5], strides=[1], activation=activation))
-
-        network.append(Layers.conv2d_max_pool(filters * 2.0, kernels=[3], strides=[1], activation=activation))
-        network.append(Layers.conv2d_max_pool(filters * 2.5, kernels=[3], strides=[1], activation=activation))
+        # block 2: conv k3 -> max pool -> conv k3 -> max pool
+        network.conv2d_max_pool(filters, kernels=[3], strides=[1], activation=activation, dropout=dropout)
+        network.conv2d_max_pool(filters, kernels=[3], strides=[1], activation=activation, dropout=dropout)
 
         if global_pool:
-            network.append(Layers.global_avg_pooling())
+            network.global_avg_pooling()
         else:
-            network.append(Layers.flatten())
+            network.flatten()
 
-        for neurons in units:
-            network.append(Layers.dense(neurons, activation=dense_activation))
+        if len(units) > 0:
+            network.dense(units[0], activation='relu', dropout=dropout)
 
-        Networks.output_layer(network, output)
-        return network
+            for units in units[1:]:
+                network.dense(units, activation='tanh', dropout=dropout)
+
+        network.set_output(output)
+        return network.build()
 
     @staticmethod
-    def dense(inputs: ListOrString = None, output: str = None, units=64, layers=2, activation='relu', dropout=0.0) \
-            -> List[dict]:
-        network = []
-        Networks.input_layer(network, inputs)
+    def dense(inputs: ListOrString = None, output: str = None, units: IntOrList = 64, layers: Optional[int] = 2,
+              activation='relu', dropout=0.0, embed=None) -> List[dict]:
+        network = NetworkSpec(inputs, output)
 
-        for i in range(layers):
-            network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
+        if isinstance(embed, int):
+            network.embedding(size=embed)
 
-        Networks.output_layer(network, output)
-        return network
+        if isinstance(units, int):
+            assert isinstance(layers, int) and layers > 0
+            units = [units] * layers
+        else:
+            assert isinstance(units, list) and len(units) > 0
+
+        for neurons in units:
+            network.dense(neurons, activation, dropout)
+
+        return network.build()
 
     @staticmethod
     def recurrent(inputs: ListOrString = None, output: str = None, embed: Optional[dict] = None, cell='gru', units=64,
                   return_final_state=True, activation='tanh', dropout=0.0) -> List[dict]:
-        network = []
-        Networks.input_layer(network, inputs)
+        network = NetworkSpec()
+        network.set_inputs(inputs)
 
         if isinstance(embed, dict):
-            network.append(dict(type='embedding', size=embed['size'], num_embeddings=embed.get('num', None),
-                                max_norm=embed.get('norm', None), bias=True, activation=embed.get('activation', 'tanh'),
-                                dropout=dropout))
+            network.embedding(size=embed['size'], num_embeddings=embed.get('num', None), dropout=dropout,
+                              max_norm=embed.get('norm', None), activation=embed.get('activation', 'tanh'))
 
-        network.append(dict(type='rnn', cell=cell, size=units, bias=True, activation=activation, dropout=dropout,
-                            return_final_state=return_final_state))
+        network.rnn(units, cell, return_final_state, activation, dropout)
+        network.set_output(output)
 
-        Networks.output_layer(network, output)
-        return network
+        return network.build()
 
     @staticmethod
     def feature2d(inputs: str, output: str, shape: Tuple[int, int], filters: int, kernel=3, stride=1, layers=2,
-                  activation='relu', dropout=0.0, global_pool='mean', normalization='layer') -> List[dict]:
+                  activation='swish', dropout=0.0, global_pool='mean', normalization='layer') -> List[dict]:
         """A convolutional-like network to process matrix-like (2D) features.
             - If [global_pool=None] then flattening() is used instead.
             - If [normalization=None], no normalization is used at all.
         """
         assert len(shape) > 1
 
-        network = []
-        Networks.input_layer(network, inputs)
-        network.append(dict(type='reshape', shape=shape + (1,)))  # make the shape like (h, w, 1)
-        # network.append(dict(type='register', tensor='_reshape'))  # register reshape's output for later use
+        network = NetworkSpec(inputs, output)
+        network.add_normalization(kind=normalization)
+        # network.reshape(shape=shape + (1,), name='my_reshape')  # makes the shape like (h, w, 1)
+        network.reshape(shape=shape + (1,))  # makes the shape like (h, w, 1)
+        # network.add_layer(dict(type='register', tensor='_reshape'))  # register reshape's output for later use
 
         # main conv. branch:
         for i in range(1, layers + 1):
-            network.append(dict(type='conv2d', size=filters * i, window=kernel, stride=stride, activation=activation,
-                                dropout=dropout))
-
-            if normalization == 'batch':
-                network.append(Layers.batch_normalization())
-            elif normalization == 'layer':
-                network.append(Layers.layer_normalization())
+            network.conv2d(filters * i, kernel, stride, activation, dropout)
+            # network.add_normalization(kind=normalization)
 
         if isinstance(global_pool, str):
-            network.append(dict(type='pooling', reduction=global_pool))
+            # network.global_pooling(reduction=global_pool, name='main_out')
+            network.global_pooling(reduction=global_pool)
         else:
-            network.append(dict(type='flatten'))
+            # network.flatten(name='main_out')
+            network.flatten()
 
         # # register main branch's output
-        # network.append(dict(type='register', tensor="_main_out"))
+        # # network.add_layer(dict(type='register', tensor="_main_out"))
         #
         # # summarize: apply a conv. kernel (1, shape[1]) with stride 1 and one filter
-        # network.append(dict(type='retrieve', tensors=['_reshape']))
-        # network.append(dict(type='conv2d', size=1, window=(1, shape[1]), stride=1, activation=activation))
-        # network.append(dict(type='reshape', shape=(shape[0], )))
-        # network.append(dict(type='register', tensor='_summary'))
+        # # network.add_layer(dict(type='retrieve', tensors=['_reshape']))
+        # network.add_layer(dict(type='reuse', name='my_reshape'))
+        # network.add_layer(dict(type='conv2d', size=1, window=(1, shape[1]), stride=1, activation=activation))
+        # network.add_layer(dict(type='reshape', shape=(shape[0], ), name='reshape_2'))
+        # # network.add_layer(dict(type='register', tensor='_summary'))
         #
         # # concat main conv. branch output with summary output:
-        # network.append(dict(type='retrieve', tensors=['_main_out', '_summary'], aggregation='concat'))
+        # # network.add_layer(dict(type='retrieve', tensors=['_main_out', '_summary'], aggregation='concat'))
+        # network.add_layer(dict(type='retrieve', tensors=['main_out', 'reshape_2'], aggregation='concat'))
 
-        Networks.output_layer(network, output)
-        return network
+        return network.build()
 
     @staticmethod
-    def complex(networks: [[dict]], layers=2, units=64, activation='relu', dropout=0.0, aggregation='concat',
-                rnn: dict = None) -> List[dict]:
+    def feature2d_skip(inputs: str, output: str, name: str, shape: Tuple[int, int], filters: int, kernel=3, stride=1,
+                       layers=2, activation='swish', dropout=0.0, global_pool='mean',
+                       normalization='layer') -> List[dict]:
+        """A convolutional-like network to process matrix-like (2D) features.
+            - If [global_pool=None] then flattening() is used instead.
+            - If [normalization=None], no normalization is used at all.
+        """
+        assert len(shape) > 1
+        network = NetworkSpec(inputs, output)
+        network.add_normalization(kind=normalization)
+        network.reshape(shape=shape + (1,))
+        network.add_layer(dict(type='register', tensor=f'reshape_{name}_out'))
+        network.add_layer(dict(type='retrieve', tensors=f'reshape_{name}_out'))
+
+        # main conv. branch:
+        for i in range(1, layers + 1):
+            network.conv2d(filters * i, kernel=kernel, stride=stride, activation=activation, dropout=dropout,
+                           padding='valid')
+
+        if isinstance(global_pool, str):
+            network.global_pooling(reduction=global_pool)
+        else:
+            network.flatten()
+
+        # register main branch's output
+        network.add_layer(dict(type='register', tensor=f"conv_{name}_out"))
+
+        # summarize: apply a conv. kernel (1, shape[1]) with stride 1 and one filter
+        network.add_layer(dict(type='retrieve', tensors=f'reshape_{name}_out'))
+
+        network.conv2d(filters=1, kernel=(1, shape[1]), stride=1, padding='valid', activation=activation)
+
+        network.reshape(shape=(shape[0],))
+        network.add_layer(dict(type='register', tensor=f'avg_{name}_out'))
+
+        # concat main conv. branch output with summary output:
+        network.add_layer(dict(type='retrieve', tensors=[f'conv_{name}_out', f'avg_{name}_out'], aggregation='concat'))
+
+        return network.build()
+
+    @staticmethod
+    def complex(networks: [[dict]], layers=2, units: IntOrList = 64, activation='relu', dropout=0.0,
+                aggregation='concat', rnn: dict = None) -> List[dict]:
         network = networks
         outputs = []
 
@@ -442,8 +468,10 @@ class Networks:
         # aggregate them
         network.append(dict(type='retrieve', tensors=outputs, aggregation=aggregation))
 
-        for i in range(layers):
-            network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
+        # for i in range(layers):
+        #     network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
+
+        network.extend(Networks.dense(units=units, layers=layers, activation=activation, dropout=dropout))
 
         if rnn and rnn.get('length', 0) > 0:
             network.append(dict(type='internal_rnn', cell=rnn.get('cell', 'lstm'), size=rnn.get('units', 128),
@@ -591,6 +619,52 @@ class Specifications:
                                 activation=final.get('activation', 'none'), units=final.get('units', 256))
 
     @staticmethod
+    def network_v4(convolutional: Dict[str, dict], features: Dict[str, dict], dense: Dict[str, dict],
+                   final: dict = None) -> List[dict]:
+        assert isinstance(convolutional, dict)
+        assert isinstance(features, dict)
+        assert isinstance(dense, dict)
+        final = final or dict()
+        networks = []
+
+        for name, args in convolutional.items():
+            conv_net = Networks.my_cnn(inputs=name, output=name + '_out', **args)
+            networks.append(conv_net)
+
+        for name, args in features.items():
+            feature_net = Networks.feature2d(inputs=name, output=name + "_out", **args)
+            networks.append(feature_net)
+
+        for name, args in dense.items():
+            dense_net = Networks.dense(inputs=name, output=name + '_out', **args)
+            networks.append(dense_net)
+
+        return Networks.complex(networks=networks, **final)
+
+    @staticmethod
+    def network_v5(convolutional: Dict[str, dict], features: Dict[str, dict], dense: Dict[str, dict],
+                   final: dict = None) -> List[dict]:
+        assert isinstance(convolutional, dict)
+        assert isinstance(features, dict)
+        assert isinstance(dense, dict)
+        final = final or dict()
+        networks = []
+
+        for name, args in convolutional.items():
+            conv_net = Networks.my_cnn(inputs=name, output=name + '_out', **args)
+            networks.append(conv_net)
+
+        for name, args in features.items():
+            feature_net = Networks.feature2d_skip(inputs=name, output=name + "_out", **args)
+            networks.append(feature_net)
+
+        for name, args in dense.items():
+            dense_net = Networks.dense(inputs=name, output=name + '_out', **args)
+            networks.append(dense_net)
+
+        return Networks.complex(networks=networks, **final)
+
+    @staticmethod
     def rnn_network(conv: dict = None, rnn: dict = None, final: dict = None, dropout=0.2):
         conv = conv or dict()
         final = final or dict()
@@ -617,11 +691,11 @@ class Specifications:
             units=final.get('units', 256))
 
     @staticmethod
-    def saver():
-        raise NotImplementedError
+    def saver(directory: str, filename: str, frequency=600, load=True) -> dict:
+        return dict(directory=directory, filename=filename, frequency=frequency, load=load)
 
     @staticmethod
-    def summarizer(directory='data/summaries', labels=None, frequency=100):
+    def summarizer(directory='data/summaries', labels=None, frequency=100) -> dict:
         # ['graph', 'entropy', 'kl-divergence', 'losses', 'rewards'],
         return dict(directory=directory,
                     labels=labels or ['entropy', 'action-entropies', 'gaussian', 'exploration', 'beta',
@@ -638,6 +712,11 @@ class Specifications:
                     staircase=staircase,
                     decay_steps=steps,
                     decay_rate=rate)
+
+    @staticmethod
+    def linear_decay(initial_value: float, final_value: float, steps: int, unit='updates', cycle=False):
+        return dict(type='decaying', decay='polynomial', power=1.0, unit=unit, decay_steps=steps, increasing=False,
+                    initial_value=initial_value, final_value=final_value, cycle=cycle)
 
     @staticmethod
     def carla_agent(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict,
@@ -680,15 +759,6 @@ class Specifications:
                                                    estimate_horizon='early',
                                                    estimate_advantage=True),
                             **kwargs)
-
-    @staticmethod
-    def agent_v2():
-        # TODO: augment agent with an RNN
-        # TODO: also stack 4 input (agent_v3?)
-        # TODO: use separable-convolutions
-        # TODO: reduce input size of image observation, e.g. 84x84, 75x105, 105x140, 150x200
-        # TODO: use control instead of previous actions?
-        pass
 
     @staticmethod
     def my_preprocessing(image_shape=(105, 140, 1), normalization=False, stack_images=4):

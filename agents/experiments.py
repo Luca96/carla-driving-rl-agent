@@ -6,18 +6,24 @@ import carla
 import pygame
 import numpy as np
 
-from typing import Optional, ClassVar
+from typing import Optional, ClassVar, List, Union
 from tensorforce import Agent
 
-from agents import Agents, SensorSpecs, Specs
+from agents.agents import Agents
+from agents.specifications import Specifications as Specs
 from agents.environment import SynchronousCARLAEnvironment
 from agents import env_utils
+from agents.sensors import SensorSpecs
+from agents.env_features import ActionPenalty, TemporalFeature
+from agents.specifications import NetworkSpec
 from tools import utils
+from tools.utils import WAYPOINT_DICT
 
 
 # -------------------------------------------------------------------------------------------------
 # -- Baseline Experiments
 # -------------------------------------------------------------------------------------------------
+
 
 class BaselineExperiment(SynchronousCARLAEnvironment):
     ACTIONS_SPEC = dict(type='float', shape=(3,), min_value=-1.0, max_value=1.0)
@@ -279,22 +285,6 @@ class RouteFollowExperiment(SynchronousCARLAEnvironment):
                 'Skill: %s' % self.get_skill_name()]
 
 
-class ActionPenaltyExperiment(RouteFollowExperiment):
-    # skill, throttle or brake, steer, reverse
-    ACTIONS_SPEC = dict(type='float', shape=(4,), min_value=-1.0, max_value=1.0)
-    DEFAULT_ACTIONS = np.array([0.0, 0.0, 0.0, 0.0])
-
-    # TODO: consider to 'decay' actions sa training goes on
-    def actions_to_control(self, actions):
-        self.control.throttle = float(actions[1]) if actions[1] > 0 else 0.0
-        self.control.brake = float(-actions[1]) if actions[1] < 0 else 0.0
-        self.control.steer = float(actions[2])
-        self.control.reverse = bool(actions[3] > 0)
-
-    def action_penalty(self):
-        pass
-
-
 class RadarSegmentationExperiment(RouteFollowExperiment):
     """Equips the vehicle with RADAR and semantic segmentation camera"""
 
@@ -361,33 +351,18 @@ class CompleteStateExperiment(RouteFollowExperiment):
 
     DEFAULT_ACTIONS = dict(control=DEFAULT_CONTROL, skill=DEFAULT_SKILL)
 
-    def __init__(self, time_horizon=5, *args, **kwargs):
-        assert isinstance(time_horizon, int)
+    def __init__(self, time_horizon=10, radar_shape=(50, 40, 1), *args, **kwargs):
+        assert isinstance(radar_shape, tuple)
         super().__init__(*args, **kwargs)
-
-        self.time_horizon = time_horizon
-        self.time_index = 0
-        self.radar_index = 0
-        self.image_shape = self.image_shape[:2] + (time_horizon,)  # consider grayscale images
-        # self.radar_obs_per_step = math.floor(1500 / self.fps) + 1
+        self.radar_shape = radar_shape
 
         # TODO: try dtype=np.float16 to save memory
-        # features' default values (add a temporal axis)
-        # NOTE: features are 2D-arrays so that applying convolutions is more efficiently than recurrences
-        self.DEFAULT_VEHICLE = np.zeros((time_horizon, self.VEHICLE_FEATURES_SPEC['shape'][0]), dtype=np.float32)
-        self.DEFAULT_SKILLS = np.zeros((time_horizon,), dtype=np.float32)
-        self.EMPTY_ACTIONS = np.zeros((time_horizon, self.DEFAULT_CONTROL.shape[0]), dtype=np.float32)
-        self.DEFAULT_RADAR = np.zeros((50 * time_horizon, 4), dtype=np.float32)
-        self.DEFAULT_IMAGE = np.zeros(self.image_shape, dtype=np.float32)
-        self.DEFAULT_ROAD = np.zeros((time_horizon, self.ROAD_FEATURES_SPEC['shape'][0]), dtype=np.float32)
-
-        # empty observations (to be filled on temporal axis)
-        self.actions_obs = self.EMPTY_ACTIONS.copy()
-        self.vehicle_obs = self.DEFAULT_VEHICLE.copy()
-        self.skills_obs = self.DEFAULT_SKILLS.copy()
-        self.radar_obs = self.DEFAULT_RADAR.copy()
-        self.image_obs = self.DEFAULT_IMAGE.copy()
-        self.road_obs = self.DEFAULT_ROAD.copy()
+        self.vehicle_obs = TemporalFeature(time_horizon, shape=self.VEHICLE_FEATURES_SPEC['shape'])
+        self.skills_obs = TemporalFeature(time_horizon, shape=self.SKILL_SPEC['shape'])
+        self.actions_obs = TemporalFeature(time_horizon, shape=self.DEFAULT_CONTROL.shape)
+        self.radar_obs = TemporalFeature(time_horizon * 50, shape=(4,))
+        self.image_obs = TemporalFeature(time_horizon, shape=self.image_shape[:2], axis=-1)
+        self.road_obs = TemporalFeature(time_horizon, shape=self.ROAD_FEATURES_SPEC['shape'])
 
     def default_sensors(self) -> dict:
         sensors = super().default_sensors()
@@ -399,24 +374,30 @@ class CompleteStateExperiment(RouteFollowExperiment):
         return sensors
 
     def states(self):
-        # TODO: consider adding 'rewards' to state space!
-        return dict(image=dict(shape=self.image_shape),
-                    radar=dict(type='float', shape=self.DEFAULT_RADAR.shape),
-                    road=dict(type='float', shape=self.DEFAULT_ROAD.shape),
-                    vehicle=dict(type='float', shape=self.DEFAULT_VEHICLE.shape),
-                    past_actions=dict(type='float', shape=self.EMPTY_ACTIONS.shape),
-                    past_skills=dict(type='float', shape=self.DEFAULT_SKILLS.shape, min_value=0.0,
+        return dict(image=dict(shape=self.image_obs.shape),
+                    radar=dict(type='float', shape=self.radar_obs.shape),
+                    road=dict(type='float', shape=self.road_obs.shape),
+                    vehicle=dict(type='float', shape=self.vehicle_obs.shape),
+                    past_actions=dict(type='float', shape=self.actions_obs.shape),
+                    past_skills=dict(type='float', shape=self.skills_obs.shape, min_value=0.0,
                                      max_value=len(self.SKILLS) - 1.0))
 
     def actions(self):
-        return dict(control=self.CONTROL_SPEC,
-                    skill=self.SKILL_SPEC)
+        return dict(control=self.CONTROL_SPEC, skill=self.SKILL_SPEC)
 
-    def execute(self, actions, record_path: str = None):
-        state, terminal, reward = super().execute(actions, record_path=record_path)
-        self.time_index = (self.time_index + 1) % self.time_horizon
+    def policy_network(self, **kwargs) -> List[dict]:
+        features = dict(road=dict(shape=self.road_obs.shape, filters=6, kernel=3, stride=1, layers=4),
+                        vehicle=dict(shape=self.vehicle_obs.shape, filters=6, kernel=(3, 4), layers=4),
+                        past_actions=dict(shape=self.actions_obs.shape, filters=6, kernel=(3, 1), layers=4))
 
-        return state, terminal, reward
+        conv_nets = dict(image=dict(filters=22, layers=(2, 5), middle_noise=True, middle_normalization=True),
+                         radar=dict(filters=12, reshape=self.radar_shape, layers=(2, 2), activation1='elu', noise=0.0))
+
+        dense_nets = dict(past_skills=dict(units=[24, 30, 30, 30, 24], activation='swish'))  # 24 -> ~3.6k
+
+        # < 0.02ms (agent.act)
+        return Specs.network_v4(convolutional=conv_nets, features=features, dense=dense_nets,
+                                final=dict(units=[320, 224, 224, 128], activation='swish'))  # 284 -> ~242k
 
     def reward(self, actions, time_cost=-1.0, b=2.0, c=2.0, d=2.0, k=6.0):
         # normalize reward to [-k, +1] where 'k' is an arbitrary multiplier representing a big negative value
@@ -426,16 +407,13 @@ class CompleteStateExperiment(RouteFollowExperiment):
         return (r / v) + self.action_penalty(actions)
 
     def reset(self, soft=False) -> dict:
-        self.time_index = 0
-        self.radar_index = 0
-
         # reset observations (np.copyto() should reuse memory...)
-        np.copyto(self.actions_obs, self.EMPTY_ACTIONS)
-        np.copyto(self.road_obs, self.DEFAULT_ROAD)
-        np.copyto(self.radar_obs, self.DEFAULT_RADAR)
-        np.copyto(self.image_obs, self.DEFAULT_IMAGE)
-        np.copyto(self.skills_obs, self.DEFAULT_SKILLS)
-        np.copyto(self.vehicle_obs, self.DEFAULT_VEHICLE)
+        self.actions_obs.reset()
+        self.radar_obs.reset()
+        self.image_obs.reset()
+        self.road_obs.reset()
+        self.skills_obs.reset()
+        self.vehicle_obs.reset()
 
         return super().reset(soft=soft)
 
@@ -527,19 +505,185 @@ class CompleteStateExperiment(RouteFollowExperiment):
     def _get_observation(self, sensors_data: dict) -> dict:
         if len(sensors_data.keys()) == 0:
             # sensor_data is empty so, return a default observation
-            return dict(image=self.DEFAULT_IMAGE, radar=self.DEFAULT_RADAR, vehicle=self.DEFAULT_VEHICLE,
-                        road=self.DEFAULT_ROAD, past_actions=self.EMPTY_ACTIONS, past_skills=self.DEFAULT_SKILLS)
+            return dict(image=self.image_obs.default, radar=self.radar_obs.default, vehicle=self.vehicle_obs.default,
+                        road=self.road_obs.default, past_actions=self.actions_obs.default,
+                        past_skills=self.skills_obs.default)
+
+        # resize image if necessary
+        image = sensors_data['camera']
+
+        if image.shape != self.image_shape:
+            image = env_utils.resize(image, size=self.image_size)
 
         # grayscale image, plus -1, +1 scaling
-        image = (2 * env_utils.cv2_grayscale(sensors_data['camera']) - 255.0) / 255.0
+        image = (2 * env_utils.cv2_grayscale(image) - 255.0) / 255.0
+        radar = sensors_data['radar']
+
+        # concat new observations along the temporal axis:
+        self.vehicle_obs.append(value=self._get_vehicle_features())
+        self.actions_obs.append(value=self.prev_actions['control'].copy())
+        self.skills_obs.append(value=self.prev_actions['skill'].copy())
+        self.road_obs.append(value=self._get_road_features())
+        self.image_obs.append(image, depth=True)
+
+        # copy radar measurements
+        for i, detection in enumerate(radar):
+            self.radar_obs.append(detection)
+
+        # observation
+        return dict(image=self.image_obs.data, radar=self.radar_obs.data, vehicle=self.vehicle_obs.data,
+                    road=self.road_obs.data, past_actions=self.actions_obs.data, past_skills=self.skills_obs.data)
+
+
+class SkipTrickExperiment(CompleteStateExperiment):
+    # TODO: take the average/maximum/minimum reward when skipping?
+    # tells how many times the current action (control) should be repeated
+    SKIP_SPEC = dict(type='float', shape=1, min_value=1.0, max_value=6.0)  # 6 means repeat for 200ms
+    DEFAULT_SKIP = 0.0
+
+    DEFAULT_CONTROL = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    DEFAULT_SKILL = np.array([0.0], dtype=np.float32)
+
+    DEFAULT_ACTIONS = dict(control=DEFAULT_CONTROL, skill=DEFAULT_SKILL, skip=DEFAULT_SKIP)
+
+    # Vehicle: speed, acceleration, angular velocity, similarity, distance to waypoint
+    VEHICLE_FEATURES_SPEC = dict(type='float', shape=(5,))
+
+    # Road: intersection (bool), junction (bool), speed_limit, traffic_light (presence + state), lane type and change,
+    ROAD_FEATURES_SPEC = dict(type='float', shape=(7,))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        del self.EMPTY_ACTIONS
+        del self.actions_obs
+
+        self.DEFAULT_CONTROLS = np.zeros((self.time_horizon, 4), dtype=np.float32)
+        self.DEFAULT_SKIPS = np.zeros((self.time_horizon,), dtype=np.float32)
+
+        # empty observations (to be filled on temporal axis)
+        # self.vehicle_obs = self.DEFAULT_VEHICLE.copy()
+        self.control_obs = self.DEFAULT_CONTROLS.copy()
+        # self.skills_obs = self.DEFAULT_SKILLS.copy()
+        self.skips_obs = self.DEFAULT_SKIPS.copy()
+        # self.radar_obs = self.DEFAULT_RADAR.copy()
+        # self.image_obs = self.DEFAULT_IMAGE.copy()
+        # self.road_obs = self.DEFAULT_ROAD.copy()
+
+        self.prev_control = None
+
+    def states(self):
+        return dict(image=dict(shape=self.image_shape),
+                    radar=dict(type='float', shape=self.DEFAULT_RADAR.shape),
+                    road=dict(type='float', shape=self.DEFAULT_ROAD.shape),
+                    vehicle=dict(type='float', shape=self.DEFAULT_VEHICLE.shape),
+                    past_control=dict(type='float', shape=self.DEFAULT_CONTROLS.shape),
+                    skills=dict(type='float', shape=self.DEFAULT_SKILLS.shape, min_value=0.0,
+                                max_value=len(self.SKILLS) - 1.0),
+                    action_skip=dict(type='float', shape=self.DEFAULT_SKIPS.shape, min_value=1.0, max_value=6.0))
+
+    def actions(self):
+        return dict(control=self.CONTROL_SPEC, skill=self.SKILL_SPEC, skip=self.SKIP_SPEC)
+
+    def on_collision(self, event: carla.CollisionEvent, penalty=1000.0, **kwargs):
+        actor_type = event.other_actor.type_id
+        print(f'Collision with actor={actor_type})')
+
+        if 'pedestrian' in actor_type:
+            self.collision_penalty += penalty
+            self.should_terminate = True
+
+        elif 'vehicle' in actor_type:
+            self.collision_penalty += penalty / 2.0
+            self.should_terminate = True
+        else:
+            self.collision_penalty += penalty / 100.0
+            self.should_terminate = False
+
+    def reward(self, actions, time_cost=-1, d=2.0, w=10.0, s=2.0, v_max=150.0, d_max=100.0, **kwargs):
+        # Direction term: alignment of the vehicle's forward vector with the waypoint's forward vector
+        speed = min(utils.speed(self.vehicle), v_max)
+        vel = max(speed / 10.0, 1.0)
+
+        if 0.8 <= self.similarity <= 1.0:
+            direction_penalty = vel * self.similarity * (self.action_penalty(actions) + 1)  # ensure coordination
+        else:
+            direction_penalty = vel * abs(self.similarity) * -d
+
+        # Distance from waypoint (and also lane center)
+        waypoint_term = min(self.route.distance_to_next_waypoint(), d_max) * -w
+
+        # Speed-limit compliance:
+        speed_limit = self.vehicle.get_speed_limit()
+
+        if speed <= speed_limit:
+            speed_penalty = 0.0 if speed >= 10.0 else speed - 10.0
+        else:
+            speed_penalty = s * (speed_limit - speed)
+
+        # almost bounded [-2250, +60]
+        return time_cost - self.collision_penalty + waypoint_term + direction_penalty + speed_penalty
+
+    def execute(self, actions, record_path: str = None):
+        repeat_actions = int(np.round(actions['skip']))
+        state = None
+        terminal = False
+        avg_reward = 0.0
+
+        for _ in range(repeat_actions):
+            state, terminal, reward = super().execute(actions, record_path)
+            avg_reward += reward
+
+            if terminal:
+                break
+
+        return state, terminal, avg_reward / repeat_actions
+
+    def reset(self, soft=False) -> dict:
+        self.time_index = 0
+        self.radar_index = 0
+        self.prev_control = [0.0, 0.0, 0.0, 0.0]
+
+        # reset observations
+        np.copyto(dst=self.control_obs, src=self.DEFAULT_CONTROLS)
+        np.copyto(dst=self.road_obs, src=self.DEFAULT_ROAD)
+        np.copyto(dst=self.radar_obs, src=self.DEFAULT_RADAR)
+        np.copyto(dst=self.image_obs, src=self.DEFAULT_IMAGE)
+        np.copyto(dst=self.skills_obs, src=self.DEFAULT_SKILLS)
+        np.copyto(dst=self.skips_obs, src=self.DEFAULT_SKIPS)
+        np.copyto(dst=self.vehicle_obs, src=self.DEFAULT_VEHICLE)
+
+        return RouteFollowExperiment.reset(self, soft=soft)
+
+    def debug_text(self, actions):
+        text = super().debug_text(actions)
+        text.append('Skip: %d' % int(np.round(actions['skip'])))
+        return text
+
+    def _get_observation(self, sensors_data: dict) -> dict:
+        if len(sensors_data.keys()) == 0:
+            # sensor_data is empty so, return a default observation
+            return dict(image=self.DEFAULT_IMAGE, radar=self.DEFAULT_RADAR, vehicle=self.DEFAULT_VEHICLE,
+                        road=self.DEFAULT_ROAD, past_control=self.DEFAULT_CONTROLS, skills=self.DEFAULT_SKILLS,
+                        action_skip=self.DEFAULT_SKIPS)
+
+        # resize image if necessary
+        image = sensors_data['camera']
+
+        if image.shape != self.image_shape:
+            image = env_utils.resize(image, size=self.image_size)
+
+        # grayscale image, and rescale to [-1, +1]
+        image = (2 * env_utils.cv2_grayscale(image) - 255.0) / 255.0
         radar = sensors_data['radar']
         t = self.time_index
 
         # concat new observations along the temporal axis:
         self.vehicle_obs[t] = self._get_vehicle_features()
-        self.actions_obs[t] = self.prev_actions['control'].copy()
+        self.control_obs[t] = self.prev_control.copy()
         self.skills_obs[t] = self.prev_actions['skill'].copy()
-        self.road_obs[t] = self._get_road_features()
+        self.skips_obs[t] = self.prev_actions['skip'].copy()
+        self.road_obs[t] = np.array(self._get_road_features(), dtype=np.float32)
         self.image_obs[:, :, t] = image
 
         # copy radar measurements
@@ -548,8 +692,86 @@ class CompleteStateExperiment(RouteFollowExperiment):
             self.radar_obs[index] = detection
 
         # observation
-        return dict(image=self.image_obs, radar=self.radar_obs, vehicle=self.vehicle_obs,
-                    road=self.road_obs, past_actions=self.actions_obs, past_skills=self.skills_obs)
+        return dict(image=self.image_obs, radar=self.radar_obs, vehicle=self.vehicle_obs, road=self.road_obs,
+                    past_control=self.control_obs, skills=self.skills_obs, action_skip=self.skips_obs)
+
+    def _control_as_vector(self) -> list:
+        return [self.control.throttle, self.control.brake, self.control.steer, float(self.control.reverse)]
+
+    def _get_road_features(self):
+        waypoint = self.map.get_waypoint(self.vehicle.get_location())
+        speed_limit = self.vehicle.get_speed_limit()
+        is_at_traffic_light = self.vehicle.is_at_traffic_light()
+
+        if is_at_traffic_light:
+            traffic_light_state = self.vehicle.get_traffic_light_state()
+        else:
+            traffic_light_state = carla.TrafficLightState.Unknown
+
+        # get current lane type: consider only road (driving) lanes
+        if waypoint.lane_type is carla.LaneType.NONE:
+            lane_type = 0
+        elif waypoint.lane_type is carla.LaneType.Driving:
+            lane_type = 1
+        else:
+            lane_type = 0
+
+        return [waypoint.is_intersection,
+                waypoint.is_junction,
+                round(speed_limit / 10.0),
+                # Traffic light:
+                is_at_traffic_light,
+                WAYPOINT_DICT['traffic_light'][traffic_light_state],
+                # Lane:
+                lane_type,
+                WAYPOINT_DICT['lane_change'][waypoint.lane_change]]
+
+    def _get_vehicle_features(self):
+        imu_sensor = self.sensors['imu']
+
+        # vehicle's acceleration (also considers direction)
+        acceleration = env_utils.magnitude(imu_sensor.accelerometer) * env_utils.sign(self.similarity)
+
+        # vehicle's angular velocity
+        angular_velocity = env_utils.magnitude(imu_sensor.gyroscope)
+
+        return [utils.speed(self.vehicle) / 10.0,
+                acceleration,
+                angular_velocity,
+                # Target (next) waypoint's features:
+                self.similarity,
+                self.route.distance_to_next_waypoint()]
+
+    @staticmethod
+    def run(num_episodes: int, num_timesteps: int, env_args=dict(), agent_args=dict()):
+        radar_shape = env_args.pop('radar_shape')
+        env = SkipTrickExperiment(debug=True, **env_args)
+
+        # agent network
+        features = dict(road=dict(shape=env.DEFAULT_ROAD.shape, filters=6//2, kernel=3, stride=1, layers=4),
+                        vehicle=dict(shape=env.DEFAULT_VEHICLE.shape, filters=6//2, kernel=(3, 4), layers=4),
+                        past_control=dict(shape=env.DEFAULT_CONTROLS.shape, filters=6//2, kernel=(3, 1), layers=4))
+
+        conv_nets = dict(image=dict(filters=20//5, layers=(2, 5), middle_noise=True, middle_normalization=True),
+                         radar=dict(filters=10//2, reshape=radar_shape + (1,), layers=(2//2, 2//2), activation1='elu',
+                                    noise=0.0))
+
+        dense_nets = dict(skills=dict(units=[30//3, 30//3], activation='swish'),
+                          action_skip=dict(units=[24//4, 24//4], activation='swish'))
+
+        network = Specs.network_v4(convolutional=conv_nets, features=features, dense=dense_nets,
+                                   final=dict(units=[256//8, 128//8], activation='swish'))
+
+        agent = Agents.ppo6(env, max_episode_timesteps=num_timesteps, network=network, summarizer=Specs.summarizer(),
+                            **agent_args)
+
+        # fitting
+        env.train(agent, num_episodes, num_timesteps, weights_dir='weights/ppo6', agent_name='ppo6',
+                  record_dir=None)
+
+
+class RouteCommandExperiment(RouteFollowExperiment):
+    pass
 
 
 # -------------------------------------------------------------------------------------------------
@@ -619,8 +841,7 @@ class PlayEnvironment3(CompleteStateExperiment, CARLAPlayEnvironment):
 # -- Pretraining Experiments
 # -------------------------------------------------------------------------------------------------
 
-# TODO: improve, solve the issue with env.reset()
-class CARLAPretrainExperiment(CompleteStateExperiment):
+class CARLACollectExperience(CompleteStateExperiment):
 
     def default_agent(self, **kwargs) -> Agent:
         return Agents.pretraining(self, speed=30.0, **kwargs)
@@ -701,9 +922,13 @@ class CARLAPretrainExperiment(CompleteStateExperiment):
         text = super().debug_text(actions)
         return text[:11] + text[14:]
 
+
 # -------------------------------------------------------------------------------------------------
 # -- Curriculum Learning Experiment
 # -------------------------------------------------------------------------------------------------
+
+class CurriculumLearning:
+    pass
 
 # TODO: review implementation
 # class CurriculumCARLAEnvironment(SynchronousCARLAEnvironment):

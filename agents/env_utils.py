@@ -17,7 +17,7 @@ import pygame
 import threading
 import datetime
 
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 from tensorforce import Agent
 
 
@@ -315,9 +315,8 @@ def replace_nans(data: dict, nan=0.0, pos_inf=0.0, neg_inf=0.0):
     """In-place replacement of non-numerical values, i.e. NaNs and +/- infinity"""
     for key, value in data.items():
         if np.isnan(value).any() or np.isinf(value).any():
-            print(f'[{key}] NaN/Inf', np.sum(np.isnan(value)) + np.sum(np.isinf(value)))
+            # print(f'[{key}] NaN/Inf', np.sum(np.isnan(value)) + np.sum(np.isinf(value)))
             data[key] = np.nan_to_num(value, nan=nan, posinf=pos_inf, neginf=neg_inf)
-            print(not np.isnan(value).any() and (not np.isinf(value).any()))
 
     return data
 
@@ -326,4 +325,21 @@ def replace_nans(data: dict, nan=0.0, pos_inf=0.0, neg_inf=0.0):
 # -- Math
 # -------------------------------------------------------------------------------------------------
 
+def magnitude(vec3d: Union[carla.Vector3D, Tuple[float, float, float], List[float]]) -> float:
+    """Returns the magnitude (norm) of the given 3D vector (tuple/list or carla.Vector3D)."""
+    if isinstance(vec3d, tuple) or isinstance(vec3d, list):
+        assert len(vec3d) == 3
+        return math.sqrt(vec3d[0]**2 + vec3d[1]**2 + vec3d[2]**2)
 
+    elif isinstance(vec3d, carla.Vector3D):
+        return math.sqrt(vec3d.x**2 + vec3d.y**2 + vec3d.z**2)
+    else:
+        raise TypeError(f"Type for argument 'vec3d' must be 'list', 'tuple' or 'carla.Vector3D', not {type(vec3d)}.")
+
+
+def sign(number: float) -> float:
+    """Returns the sign (+1, -1) of the given number."""
+    if number == 0.0:
+        return +1.0
+
+    return abs(number) / number

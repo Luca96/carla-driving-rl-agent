@@ -1,8 +1,6 @@
 import carla
 import queue
 
-from tools.utils import profile
-
 
 class CARLASyncContext(object):
     """
@@ -48,7 +46,6 @@ class CARLASyncContext(object):
         for sensor in self.sensors.values():
             sensor.stop()
 
-    @profile
     def tick(self, timeout):
         self.frame = self.world.tick()
 
@@ -80,7 +77,6 @@ class CARLASyncContext(object):
 
         return data
 
-    @profile
     def _get_sensor_data(self, sensor_queue: queue.Queue, timeout: float):
         """Retrieves data for sensors (i.e. camera and other) it blocks waiting until timeout is expired."""
         while True:
