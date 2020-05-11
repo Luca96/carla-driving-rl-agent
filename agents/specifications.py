@@ -3,7 +3,6 @@
 from tensorforce import Agent
 
 from typing import Optional, Union, List, Tuple, Dict, Callable
-from agents.environment import SynchronousCARLAEnvironment
 
 
 ListOrString = Optional[Union[str, List[str]]]
@@ -719,7 +718,7 @@ class Specifications:
                     initial_value=initial_value, final_value=final_value, cycle=cycle)
 
     @staticmethod
-    def carla_agent(environment: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict,
+    def carla_agent(environment, max_episode_timesteps: int, policy: dict,
                     critic: Optional[dict], discount=1.0, horizon=100, batch_size=256, update_frequency=64, **kwargs):
         if critic is None:
             critic_policy = None

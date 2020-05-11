@@ -18,7 +18,7 @@ import threading
 import datetime
 
 from typing import Tuple, Union, List
-from tensorforce import Agent
+from tensorforce.agents import Agent, TensorforceAgent
 
 
 # -------------------------------------------------------------------------------------------------
@@ -246,6 +246,36 @@ def save_agent(agent: Agent, agent_name: str, directory: str, separate_dir=True)
     return checkpoint_path
 
 
+def load_agent(directory: str, filename: str, environment: str, from_function=None, **kwargs) -> Agent:
+    """Loads a previously saved agent if available, otherwise creates it"""
+    try:
+        agent = Agent.load(directory, filename, format='tensorflow', environment=environment, **kwargs)
+    except Exception:
+        if callable(from_function):
+            agent = from_function(environment, **kwargs)
+        else:
+            agent = Agent.create(environment=environment, **kwargs)
+
+    return agent
+
+
+def pretrain(agent: TensorforceAgent, num_traces: int, traces_dir: str, save: dict = None):
+    """Perform pretraining on a given agent."""
+    if isinstance(save, dict):
+        should_save = True
+        num_iterations = save.get('frequency', 1)
+    else:
+        should_save = False
+        num_iterations = 1
+
+    for i in range(0, num_traces, num_iterations):
+        agent.pretrain(directory=traces_dir, num_iterations=num_iterations)
+
+        if should_save:
+            agent.save(directory=save['directory'], filename=save['filename'], append=save.get('append', None))
+            print(f'Agent saved at {i + num_iterations}')
+
+
 def get_record_path(base_dir: str, prefix='ep', pattern='-') -> str:
     """Recording directory is organized as follows:
         - A [base_dir], usually `data/recordings` is the main folder.
@@ -315,10 +345,14 @@ def replace_nans(data: dict, nan=0.0, pos_inf=0.0, neg_inf=0.0):
     """In-place replacement of non-numerical values, i.e. NaNs and +/- infinity"""
     for key, value in data.items():
         if np.isnan(value).any() or np.isinf(value).any():
-            # print(f'[{key}] NaN/Inf', np.sum(np.isnan(value)) + np.sum(np.isinf(value)))
             data[key] = np.nan_to_num(value, nan=nan, posinf=pos_inf, neginf=neg_inf)
 
     return data
+
+
+def all_instances_of(iterable: list, kind: type) -> bool:
+    """Returns true is all elements of the given list are instances of [kind]"""
+    return all(map(lambda x: isinstance(x, kind), iterable))
 
 
 # -------------------------------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from typing import Optional, ClassVar, List, Union
 from tensorforce import Agent
 
 from agents.agents import Agents
+from agents.curriculum import Stage
 from agents.specifications import Specifications as Specs
 from agents.environment import SynchronousCARLAEnvironment
 from agents import env_utils
@@ -535,6 +536,7 @@ class CompleteStateExperiment(RouteFollowExperiment):
                     road=self.road_obs.data, past_actions=self.actions_obs.data, past_skills=self.skills_obs.data)
 
 
+# TODO: broken!
 class SkipTrickExperiment(CompleteStateExperiment):
     # TODO: take the average/maximum/minimum reward when skipping?
     # tells how many times the current action (control) should be repeated
@@ -825,18 +827,6 @@ class CARLAPlayEnvironment(RouteFollowExperiment):
             self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)
 
 
-class PlayEnvironment2(RadarSegmentationExperiment, CARLAPlayEnvironment):
-
-    def before_world_step(self):
-        pass
-
-
-class PlayEnvironment3(CompleteStateExperiment, CARLAPlayEnvironment):
-
-    def before_world_step(self):
-        pass
-
-
 # -------------------------------------------------------------------------------------------------
 # -- Pretraining Experiments
 # -------------------------------------------------------------------------------------------------
@@ -922,91 +912,3 @@ class CARLACollectExperience(CompleteStateExperiment):
         text = super().debug_text(actions)
         return text[:11] + text[14:]
 
-
-# -------------------------------------------------------------------------------------------------
-# -- Curriculum Learning Experiment
-# -------------------------------------------------------------------------------------------------
-
-class CurriculumLearning:
-    pass
-
-# TODO: review implementation
-# class CurriculumCARLAEnvironment(SynchronousCARLAEnvironment):
-#
-#     def learn(self, agent: Agent, initial_timesteps: int, difficulty=1, increment=5, num_stages=1, max_timesteps=1024,
-#               trials_per_stage=5, max_repetitions=1, save_agent=True, load_agent=False, agent_name='carla-agent'):
-#         initial_difficulty = difficulty
-#         target_difficulty = initial_difficulty + num_stages * increment
-#
-#         if load_agent:
-#             agent.load(directory='weights/agents', filename=agent_name, environment=self)
-#             print('Agent loaded.')
-#
-#         for difficulty in range(initial_difficulty, target_difficulty + 1, increment):
-#             for r in range(max_repetitions):
-#                 success_rate, avg_reward = self.stage(agent,
-#                                                       trials=trials_per_stage,
-#                                                       difficulty=difficulty,
-#                                                       max_timesteps=min(initial_timesteps * difficulty, max_timesteps))
-#
-#                 print(f'[D-{difficulty}] success_rate: {round(success_rate, 2)}, avg_reward: {round(avg_reward, 2)}')
-#
-#                 if save_agent:
-#                     agent.save(directory='weights/agents', filename=agent_name)
-#                     print(f'[D-{difficulty}] Agent saved.')
-#
-#                 print(f'Repetition {r}-D-{difficulty} ended.')
-#
-#     def stage(self, agent: Agent, trials: int, difficulty: int, max_timesteps: int):
-#         assert trials > 0
-#         assert difficulty > 0
-#         assert max_timesteps > 0
-#
-#         # self.reset(soft=False, route_size=difficulty)
-#         avg_reward = 0.0
-#         success_count = 0
-#
-#         for trial in range(trials):
-#             # states = self.reset(soft=trial != 0, route_size=difficulty)
-#             states = self.reset(route_size=difficulty)
-#             trial_reward = 0.0
-#
-#             with self.synchronous_context:
-#                 for t in range(max_timesteps):
-#                     actions = agent.act(states)
-#                     states, terminal, reward = self.execute(actions, distance_threshold=3.0)
-#
-#                     trial_reward += reward
-#                     terminal = terminal or (t == max_timesteps - 1)
-#
-#                     if self.is_at_destination():
-#                         agent.observe(reward, terminal=True)
-#                         success_count += 1
-#                         print(f'[T-{trial}] Successful -> reward: {round(trial_reward, 2)}')
-#                         break
-#
-#                     elif terminal:
-#                         agent.observe(reward, terminal=True)
-#                         print(f'[T-{trial}] not successful -> reward: {round(trial_reward, 2)}')
-#                         break
-#                     else:
-#                         agent.observe(reward, terminal=False)
-#
-#             avg_reward += trial_reward
-#
-#         return success_count / trials, avg_reward / trials
-#
-#     def is_at_destination(self, distance_threshold=2.0):
-#         return self.route.distance_to_destination() < distance_threshold
-#
-#     def _get_observation(self, image):
-#         if image is None:
-#             image = np.zeros(shape=self.image_shape, dtype=np.uint8)
-#
-#         if image.shape != self.image_shape:
-#             image = env_utils.resize(image, size=self.image_size)
-#
-#         return dict(image=image / 255.0,
-#                     vehicle_features=self._get_vehicle_features(),
-#                     road_features=self._get_road_features(),
-#                     previous_actions=self.prev_actions)

@@ -280,7 +280,13 @@ class Agents:
     @staticmethod
     def ppo6(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, batch_size: int,
              optimization_steps=10, discount=0.99, name='ppo6', lr=1e-5, entropy=0.1, critic_lr=3e-5,
-             subsampling_fraction=0.25, decay_steps=2000, **kwargs) -> PPOAgent:
+             subsampling_fraction=0.25, decay_steps=2000, use_same_optimizer=False, **kwargs) -> PPOAgent:
+        """PP0-6"""
+        critic_optimizer = dict(type='adam', learning_rate=critic_lr)
+
+        if use_same_optimizer:
+            critic_optimizer = dict(type='subsampling_step', optimizer=critic_optimizer, fraction=subsampling_fraction)
+            critic_optimizer = dict(type='multi_step', optimizer=critic_optimizer, num_steps=optimization_steps)
 
         return Agent.create(agent='ppo', name=name,
                             environment=carla_env,
@@ -295,7 +301,34 @@ class Agents:
                             optimization_steps=optimization_steps,
 
                             critic_network=carla_env.policy_network(),
-                            critic_optimizer=dict(type='adam', learning_rate=critic_lr),
+                            critic_optimizer=critic_optimizer,
+
+                            entropy_regularization=Specs.linear_decay(initial_value=entropy, final_value=0.001,
+                                                                      steps=decay_steps),
+                            variable_noise=0.0,
+                            **kwargs)
+
+    @staticmethod
+    def ppo7(carla_env: SynchronousCARLAEnvironment, batch_size: int, optimization_steps=10, discount=0.99, name='ppo7',
+             lr=1e-5, entropy=0.1, critic_lr=3e-5, subsampling_fraction=0.25, decay_steps=2000, **kwargs) -> PPOAgent:
+        """PP0-6"""
+        critic_optimizer = dict(type='adam', learning_rate=critic_lr)
+        critic_optimizer = dict(type='subsampling_step', optimizer=critic_optimizer, fraction=subsampling_fraction)
+        critic_optimizer = dict(type='multi_step', optimizer=critic_optimizer, num_steps=optimization_steps)
+
+        return Agent.create(agent='ppo', name=name,
+                            environment=carla_env,
+                            discount=discount,
+                            likelihood_ratio_clipping=Specs.linear_decay(initial_value=0.25, final_value=0.001,
+                                                                         steps=decay_steps, cycle=True),
+                            network=carla_env.policy_network(),
+                            learning_rate=lr,
+                            batch_size=batch_size,
+                            subsampling_fraction=subsampling_fraction,
+                            optimization_steps=optimization_steps,
+
+                            critic_network=carla_env.policy_network(),
+                            critic_optimizer=critic_optimizer,
 
                             entropy_regularization=Specs.linear_decay(initial_value=entropy, final_value=0.001,
                                                                       steps=decay_steps),

@@ -24,13 +24,11 @@ if __name__ == '__main__':
     # https://docs.unrealengine.com/en-US/Programming/Basics/CommandLineArguments/index.html
 
     # Test cases:
-    # tests.test_carla_env()
-    # tests.test_baseline_env()
-    # tests.test_sequence_layer()
-    # tests.test_pretrain_env()
     # tests.test_keyboard_agent(version=-2)
-    # tests.carla_wrapper()
     # tests.ppo_experiment(num_episodes=30, num_timesteps=512, load=True, image_shape=(75, 105, 3))  # 70k steps
+    # tests.toy_example()
+    # tests.new_env(episodes=3)
+    # tests.gym_test(1_000)
 
     # tests.complete_state(num_episodes=2, num_timesteps=64, image_shape=(75, 105, 3), time_horizon=10, batch_size=1,
     #                      optimization_steps=1)
@@ -52,12 +50,12 @@ if __name__ == '__main__':
 
     # tests.alternate_training_with_pretraining(train_episodes=8, num_timesteps=512, pretrain_episodes=40,
     #                                           load_agent=True,
-    #                                           traces_dir=TRACES_DIR, save_every=20, repeat=1, image_shape=(75, 105, 3),
+    #                                          traces_dir=TRACES_DIR, save_every=20, repeat=1, image_shape=(75, 105, 3),
     #                                           agent_name='alternate', weights_dir='weights/ppo4', record_dir=None)
 
     # tests.alternate_training_with_pretraining(train_episodes=2, num_timesteps=512, pretrain_episodes=4,
     #                                           load_agent=True,
-    #                                           traces_dir=TRACES_DIR, save_every=4, repeat=10 // 2, image_shape=(75, 105, 3),
+    #                                     traces_dir=TRACES_DIR, save_every=4, repeat=10 // 2, image_shape=(75, 105, 3),
     #                                           agent_args=dict(learning_rate=1e-4, subsampling_fraction=0.3,
     #                                                           optimization_steps=4),
     #                                           agent_name='alternate_1_2', weights_dir='weights/ppo4', record_dir=None)
@@ -85,11 +83,12 @@ if __name__ == '__main__':
     #                                                            radar_shape=(50, 40)),
     #                                            agent_name='alternate', weights_dir='weights/ppo5', record_dir=None)
 
-    # tests.toy_example()
-    #
     # SkipTrickExperiment.run(num_episodes=3, num_timesteps=64//4,
     #                         env_args=dict(image_shape=(75, 105, 3), radar_shape=(50, 40//2), time_horizon=10//2,
     #                                       window_size=(670, 500)),
     #                         agent_args=dict(batch_size=1, optimization_steps=4))
+
+    # tests.test_saver(num_episodes=500)
+    tests.curriculum_learning()
 
     pygame.quit()
