@@ -246,20 +246,23 @@ def save_agent(agent: Agent, agent_name: str, directory: str, separate_dir=True)
     return checkpoint_path
 
 
-def load_agent(directory: str, filename: str, environment: str, from_function=None, **kwargs) -> Agent:
+def load_agent(directory: str, filename: str, environment, from_function=None, format=None, **kwargs) -> Agent:
     """Loads a previously saved agent if available, otherwise creates it"""
     try:
-        agent = Agent.load(directory, filename, format='tensorflow', environment=environment, **kwargs)
+        agent = Agent.load(directory=directory, filename=filename, format=format, environment=environment)
+        print('agent loaded.')
     except Exception:
         if callable(from_function):
             agent = from_function(environment, **kwargs)
+            print('agent created from function.')
         else:
             agent = Agent.create(environment=environment, **kwargs)
+            print('agent created.')
 
     return agent
 
 
-def pretrain(agent: TensorforceAgent, num_traces: int, traces_dir: str, save: dict = None):
+def pretrain(agent: TensorforceAgent, num_traces: int, traces_dir: str, num_updates=1, save: dict = None):
     """Perform pretraining on a given agent."""
     if isinstance(save, dict):
         should_save = True
@@ -269,7 +272,7 @@ def pretrain(agent: TensorforceAgent, num_traces: int, traces_dir: str, save: di
         num_iterations = 1
 
     for i in range(0, num_traces, num_iterations):
-        agent.pretrain(directory=traces_dir, num_iterations=num_iterations)
+        agent.pretrain(directory=traces_dir, num_iterations=num_iterations, num_updates=num_updates)
 
         if should_save:
             agent.save(directory=save['directory'], filename=save['filename'], append=save.get('append', None))
@@ -322,13 +325,17 @@ def clamp(value, min_value, max_value):
 #     return gray_image
 
 
-def cv2_grayscale(image, is_bgr=True, depth=1):
+def cv2_grayscale(image: np.ndarray, is_bgr=True, depth=1):
     """Convert a RGB or BGR image to grayscale using OpenCV (cv2).
         :param image: input image, a numpy.ndarray.
         :param is_bgr: tells whether the image is in BGR format. If False, RGB format is assumed.
         :param depth: replicates the gray depth channel multiple times. E.g. useful to display grayscale images as rgb.
     """
     assert depth >= 1
+
+    if image.dtype != np.uint8:
+        image = np.rint(image)
+        image = image.astype(dtype=np.uint8)
 
     if is_bgr:
         grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -352,7 +359,7 @@ def replace_nans(data: dict, nan=0.0, pos_inf=0.0, neg_inf=0.0):
 
 def all_instances_of(iterable: list, kind: type) -> bool:
     """Returns true is all elements of the given list are instances of [kind]"""
-    return all(map(lambda x: isinstance(x, kind), iterable))
+    return all(isinstance(x, kind) for x in iterable)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -377,3 +384,7 @@ def sign(number: float) -> float:
         return +1.0
 
     return abs(number) / number
+
+
+def clip_bound(value: float, v_max: float, v_min: float):
+    return max(v_min, min(v_max, value))

@@ -8,3 +8,4 @@ tensorboard==2.1.0
 tensorflow==2.1.0
 tensorflow-estimator==2.1.0
 -e git+https://github.com/Luca96/tensorforce.git@cb714ba3fafc9b9bf6fee9f1f371a54cc35a7343#egg=Tensorforce
+PyContracts

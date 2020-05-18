@@ -329,6 +329,8 @@ class SensorSpecs(object):
             return carla.Transform(carla.Location(x=-0.9, y=0.0, z=2.2))
         elif position == 'on-top2':
             return carla.Transform(carla.Location(x=0.0, y=0.0, z=2.2))
+        elif position == 'op-top3':
+            return carla.Transform(carla.Location(x=0.5, y=0.0, z=2.2))
         elif position == 'radar':
             return carla.Transform(carla.Location(x=2.8, z=1.0), carla.Rotation(pitch=5))
         else:

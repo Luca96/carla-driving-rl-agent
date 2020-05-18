@@ -827,6 +827,18 @@ class CARLAPlayEnvironment(RouteFollowExperiment):
             self.route.draw_next_waypoint(self.world.debug, self.vehicle.get_location(), life_time=1.0 / self.fps)
 
 
+# class CARLAPlayEnvironment2(CARLAPlayEnvironment):
+#
+#     def default_sensors(self) -> dict:
+#         return dict(imu=SensorSpecs.imu(),
+#                     collision=SensorSpecs.collision_detector(callback=self.on_collision),
+#                     camera=SensorSpecs.segmentation_camera(position='top',
+#                                                            image_size_x=self.image_size[0],
+#                                                            image_size_y=self.image_size[1],
+#                                                             sensor_tick=self.tick_time),
+#                     depth=SensorSpecs.depth_camera(position=))
+
+
 # -------------------------------------------------------------------------------------------------
 # -- Pretraining Experiments
 # -------------------------------------------------------------------------------------------------

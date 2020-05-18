@@ -5,6 +5,8 @@ import carla
 
 from typing import Tuple, List, Union, Optional, TypedDict
 
+from contracts import contract
+
 
 class ActionPenalty(object):
     """Feature: Skills and action_penalty."""
@@ -81,7 +83,8 @@ class TemporalFeature(object):
         assert isinstance(default, (int, float))
 
         self._time_horizon = horizon
-        self._index = 0
+        self._index = -1
+        self.axis = axis
 
         if isinstance(shape, int):
             self.shape = (horizon * shape,)
@@ -94,12 +97,12 @@ class TemporalFeature(object):
         self.default = np.full(shape=self.shape, fill_value=default, dtype=dtype)
         self.data = self.default.copy()
 
-    def append(self, value, depth=False):
+    def append(self, value):
         """Inserts a given new value at the given position in a circular fashion."""
         assert value is not None
         self._index = (self._index + 1) % self._time_horizon
 
-        if depth:
+        if self.axis == -1:
             self.data[:, :, self._index] = value
         else:
             self.data[self._index] = value
@@ -107,7 +110,52 @@ class TemporalFeature(object):
     def reset(self):
         """Copies default to data (uses np.copyto)"""
         np.copyto(dst=self.data, src=self.default, casting='no')
-        self._index = 0
+        self._index = -1
+
+
+class SkipTemporalFeature(TemporalFeature):
+
+    @contract(skip='int,>0')
+    def __init__(self, skip: int, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.skip = skip
+
+    def append(self, value):
+        assert value is not None
+        self._index = (self._index + 1) % self._time_horizon
+
+        if self._index % self.skip == 1:
+            self.shift()
+
+        self._set_data(value, index=0)
+
+    def shift(self):
+        """Make room for one observation: empties the first and discards the last.
+           Example:
+            - [1, 2, 3, 4] -> [0, 1, 2, 3]
+        """
+        for i in reversed(range(self._time_horizon - 1)):
+            self._set_data(value=self._get_data(index=i), index=i + 1)
+
+        self._set_data(value=self._get_default(index=0), index=0)
+
+    def _set_data(self, value, index: int):
+        if self.axis == -1:
+            self.data[:, :, index] = value
+        else:
+            self.data[index] = value
+
+    def _get_data(self, index: int):
+        if self.axis == -1:
+            return self.data[:, :, index]
+
+        return self.data[index]
+
+    def _get_default(self, index: int):
+        if self.axis == -1:
+            return self.default[:, :, index]
+
+        return self.default[index]
 
 
 class SkipTrick(object):

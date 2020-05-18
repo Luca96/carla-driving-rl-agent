@@ -11,9 +11,9 @@ from datetime import datetime
 
 from tensorforce import Environment, Agent
 
-from agents import env_utils, agents
+from agents import env_utils
 from agents.specifications import Specifications as Specs
-from agents.env_features import TemporalFeature
+from agents.env_features import TemporalFeature, SkipTemporalFeature
 from agents.sensors import Sensor, SensorSpecs
 
 from navigation import Route, RoutePlanner
@@ -252,7 +252,7 @@ class SynchronousCARLAEnvironment(Environment):
     def terminal_condition(self, distance_threshold=10.0):
         """Tells whether the episode is terminated or not."""
         return self.should_terminate or \
-              (self.route.distance_to_destination(self.vehicle.get_location()) < distance_threshold)
+               (self.route.distance_to_destination(self.vehicle.get_location()) < distance_threshold)
 
     def close(self):
         print('env.close')
@@ -582,9 +582,8 @@ class CARLABaseEnvironment(Environment):
 
     def __init__(self, max_timesteps: int, address='localhost', port=2000, timeout=2.0, image_shape=(150, 200, 3),
                  window_size=(800, 600), vehicle_filter='vehicle.*', sensors_spec: Optional[dict] = None, fps=30.0,
-                 render=True, debug=True, spawning: dict = None, destination: carla.Location = None, use_planner=True):
+                 render=True, debug=True, path: dict = None):
         assert isinstance(max_timesteps, int)
-        assert isinstance(spawning, dict)
 
         super().__init__()
         env_utils.init_pygame()
@@ -611,37 +610,81 @@ class CARLABaseEnvironment(Environment):
 
         # Weather
 
-        # Spawning and destination
-        if 'points' in spawning:
-            self.spawn_points = spawning.get('points')
-            self.spawn_index = -1
-            self.spawn_point = None
-            self.spawn_type = spawning.get('kind', 'sequential')
+        # Path: origin, destination, and path-length:
+        self.origin_type = 'map'  # 'map' means sample a random point from the world's map
+        self.origin = None
+        self.destination_type = 'map'
+        self.destination = None
+        self.path_length = None
+        self.use_planner = True
+        self.sampling_resolution = 2.0
 
-            if self.spawn_type == 'random':
-                self.spawn_type = 'random_list'
-            else:
-                assert self.spawn_type == 'sequential'
+        if isinstance(path, dict):
+            origin_spec = path.get('origin', None)
+            destination_spec = path.get('destination', None)
+            self.path_length = path.get('length', None)
 
-            assert len(self.spawn_points) > 0
-            assert env_utils.all_instances_of(self.spawn_points, kind=carla.Transform)
+            # Origin:
+            if isinstance(origin_spec, carla.Transform):
+                self.origin = origin_spec
+                self.origin_type = 'fixed'
 
-        elif 'point' in spawning:
-            self.spawn_point = spawning.get('point')
-            self.spawn_type = spawning.get('kind', 'fixed')
+            elif isinstance(origin_spec, dict):
+                if 'point' in origin_spec:
+                    self.origin = origin_spec['point']
+                    self.origin_type = origin_spec.get('type', 'fixed')
 
-            assert isinstance(self.spawn_point, carla.Transform)
-            assert self.spawn_type in ['random', 'fixed']
-        else:
-            raise ValueError('Dict [spawning] must have either "points" or "point" attribute.')
+                    assert isinstance(self.origin, carla.Transform)
+                    assert self.origin_type in ['map', 'fixed', 'route']
 
-        self.destination = destination
-        self.random_destination = True if destination is None else False
+                elif 'points' in origin_spec:
+                    self.origins = origin_spec['points']
+                    self.origin = None
+                    self.origin_index = -1
+                    self.origin_type = origin_spec.get('type', 'random')
+
+                    assert isinstance(self.origins, list) and len(self.origins) > 0
+                    assert all(isinstance(x, carla.Transform) for x in self.origins)
+                    assert self.origin_type in ['random', 'sequential']
+
+            # Destination:
+            if isinstance(destination_spec, carla.Location):
+                self.destination = destination_spec
+                self.destination_type = 'fixed'
+
+            elif isinstance(destination_spec, dict):
+                if 'point' in destination_spec:
+                    self.destination = destination_spec['point']
+                    self.destination_type = destination_spec.get('type', 'fixed')
+
+                    assert isinstance(self.destination, carla.Location)
+                    assert self.destination_type in ['map', 'fixed']
+
+                elif 'points' in destination_spec:
+                    self.destinations = destination_spec['points']
+                    self.destination = None
+                    self.destination_index = -1
+                    self.destination_type = destination_spec.get('type', 'random')
+
+                    assert isinstance(self.destinations, list) and len(self.destinations) > 0
+                    assert all(isinstance(x, carla.Location) for x in self.destinations)
+                    assert self.destination_type in ['random', 'sequential']
+
+            # Path stuff:
+            self.path_length = path.get('length', None)
+            self.use_planner = path.get('use_planner', True)
+            self.sampling_resolution = path.get('sampling_resolution', 2.0)
+
+            if self.origin_type == 'route':
+                assert self.destination_type == 'fixed'
+                assert self.use_planner is True
+
+        elif path is not None:
+            raise ValueError('Argument [path] must be either "None" or a "dict".')
 
         # Path-planning:
-        self.use_planner = use_planner
         if self.use_planner:
-            self.route = Route(planner=RoutePlanner(map=self.map, sampling_resolution=2.0))
+            self.route = Route(planner=RoutePlanner(map=self.map, sampling_resolution=self.sampling_resolution))
         else:
             self.route = None
 
@@ -693,6 +736,16 @@ class CARLABaseEnvironment(Environment):
         """Agent's reward function"""
         raise NotImplementedError
 
+    def consume_pygame_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return True
+            elif event.type == pygame.KEYUP:
+                if event.key == pygame.K_ESCAPE:
+                    return True
+
+        return False
+
     def execute(self, actions, record_path: str = None):
         pygame.event.get()
         self.clock.tick()
@@ -718,31 +771,6 @@ class CARLABaseEnvironment(Environment):
 
         for sensor in self.sensors.values():
             sensor.destroy()
-
-    def learn2(self, agent: Agent, num_episodes: int, skip_frames=30):
-        """Learning"""
-        for episode in range(num_episodes):
-            states = self.reset()
-            total_reward = 0.0
-
-            with self.synchronous_context:
-                self.skip(num_frames=skip_frames)
-                t0 = datetime.now()
-
-                for i in range(self.max_episode_timesteps()):
-                    actions = agent.act(states)
-                    states, terminal, reward = self.execute(actions)
-
-                    total_reward += reward
-                    terminal = terminal or (i >= self.max_episode_timesteps() - 1)
-
-                    if agent.observe(reward, terminal):
-                        print(f'{i + 1}/{self.max_episode_timesteps()} -> update performed.')
-
-                    if terminal:
-                        elapsed = str(datetime.now() - t0).split('.')[0]
-                        print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(total_reward, 2)}\n')
-                        break
 
     def learn3(self, agent: Agent, num_episodes: int, save: dict = None, skip_frames=30):
         """Learning"""
@@ -775,7 +803,7 @@ class CARLABaseEnvironment(Environment):
                     agent.save(directory=save['directory'], filename=save['filename'], format='tensorflow',
                                append=save.get('append', None))
 
-    def evaluate(self, agent: Agent, num_episodes: int, deterministic=True, skip_frames=30) -> List[float]:
+    def evaluate(self, agent: Agent, num_episodes: int, skip_frames=30) -> List[float]:
         """Evaluation"""
         episodic_rewards = []
 
@@ -788,7 +816,7 @@ class CARLABaseEnvironment(Environment):
                 t0 = datetime.now()
 
                 for i in range(self.max_episode_timesteps()):
-                    actions = agent.act(states, indipendent=True, deterministic=deterministic)
+                    actions = agent.act(states, evaluation=True)
                     states, terminal, reward = self.execute(actions)
 
                     episode_reward += reward
@@ -803,7 +831,7 @@ class CARLABaseEnvironment(Environment):
         return episodic_rewards
 
     # TODO: provide training statistics, or just let tensorboard to handle them?
-    def learn(self, agent: Optional[Agent], num_episodes: int,  weights_dir=None, agent_name='carla-agent',
+    def learn(self, agent: Optional[Agent], num_episodes: int, weights_dir=None, agent_name='carla-agent',
               record_dir=None, skip_frames=25):
         record_path = None
         should_record = isinstance(record_dir, str)
@@ -938,32 +966,48 @@ class CARLABaseEnvironment(Environment):
         return data
 
     def reset_world(self):
-        # init actor
-        if self.spawn_type == 'random':
-            self.spawn_point = env_utils.random_spawn_point(self.map)
-        elif self.spawn_type == 'random_list':
-            self.spawn_point = random.choice(self.spawn_points)
-        elif self.spawn_type == 'sequential':
-            self.spawn_index = (self.spawn_index + 1) % len(self.spawn_points)
-            self.spawn_point = self.spawn_points[self.spawn_index]
+        # choose origin (spawn point)
+        if self.origin_type == 'map':
+            self.origin = env_utils.random_spawn_point(self.map)
 
+        elif self.origin_type == 'random':
+            self.origin = random.choice(self.origins)
+
+        elif self.origin_type == 'sequential':
+            self.origin_index = (self.origin_index + 1) % len(self.origins)
+            self.origin = self.origins[self.origin_index]
+
+        # choose destination (final point)
+        if self.destination_type == 'map':
+            self.destination = env_utils.random_spawn_point(self.map, different_from=self.origin.location).location
+
+        elif self.destination_type == 'random':
+            self.destination = random.choice(self.destinations)  # TODO: ensure different from origin?
+
+        elif self.destination_type == 'sequential':
+            self.destination_index = (self.destination_index + 1) % len(self.destinations)
+            self.destination = self.destinations[self.destination_index]
+
+        # plan path between origin and destination
+        if self.use_planner:
+            self.route.plan(origin=self.origin.location, destination=self.destination)
+
+        # spawn actor
         if self.vehicle is None:
             blueprint = env_utils.random_blueprint(self.world, actor_filter=self.vehicle_filter)
-            self.vehicle: carla.Vehicle = env_utils.spawn_actor(self.world, blueprint, self.spawn_point)
+            self.vehicle: carla.Vehicle = env_utils.spawn_actor(self.world, blueprint, self.origin)
 
             self._create_sensors()
             self.synchronous_context = CARLASyncContext(self.world, self.sensors, fps=self.fps)
         else:
             self.vehicle.apply_control(carla.VehicleControl())
             self.vehicle.set_velocity(carla.Vector3D(x=0.0, y=0.0, z=0.0))
-            self.vehicle.set_transform(self.spawn_point)
 
-        if self.random_destination:
-            self.destination = env_utils.random_spawn_point(self.map, different_from=self.spawn_point.location).location
-
-        # plan path
-        if self.use_planner:
-            self.route.plan(origin=self.spawn_point.location, destination=self.destination)
+            if self.origin_type == 'route':
+                new_origin = self.route.random_waypoint().transform
+                self.vehicle.set_transform(new_origin)
+            else:
+                self.vehicle.set_transform(self.origin)
 
     def actions_to_control(self, actions):
         """Specifies the mapping between an actions vector and the vehicle's control."""
@@ -987,7 +1031,6 @@ class CARLABaseEnvironment(Environment):
 # -- Sync Environment
 # -------------------------------------------------------------------------------------------------
 
-# TODO: implement "frame-skip", i.e. concat a frame every N frames so N-1 are skipped between concatenations...
 # TODO: store in a file training related stuff so that training can be resumed...
 class MyCARLAEnvironment(CARLABaseEnvironment):
     # Control: throttle or brake, steer, reverse
@@ -1002,7 +1045,11 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
     DEFAULT_SKILL = np.array([0.0], dtype=np.float32)
     SKILL_SPEC = dict(type='float', shape=1, min_value=0.0, max_value=len(SKILLS) - 1.0)
 
-    DEFAULT_ACTIONS = dict(control=DEFAULT_CONTROL, skill=DEFAULT_SKILL)
+    # Validity: how many timesteps (times) should repeat the action
+    DEFAULT_VALIDITY = np.array([1.0], dtype=np.float32)
+    VALIDITY_SPEC = dict(type='float', shape=1, min_value=1.0, max_value=10.0)  # 10 ~ almost 330ms
+
+    DEFAULT_ACTIONS = dict(control=DEFAULT_CONTROL, skill=DEFAULT_SKILL, validity=DEFAULT_VALIDITY)
 
     # Vehicle: speed, acceleration, angular velocity, similarity, distance to waypoint
     VEHICLE_FEATURES_SPEC = dict(type='float', shape=(5,))
@@ -1010,17 +1057,35 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
     # Road: intersection (bool), junction (bool), speed_limit, traffic_light (presence + state), lane type and change,
     ROAD_FEATURES_SPEC = dict(type='float', shape=(7,))
 
-    def __init__(self, *args, time_horizon=10, radar_shape=(50, 40, 1), **kwargs):
+    def __init__(self, *args, time_horizon=10, radar_shape=(50, 40, 1), consider_obs_every=5, max_validity=10.0,
+                 validity_cap=10.0, **kwargs):
         assert isinstance(radar_shape, tuple)
         super().__init__(*args, **kwargs)
         self.radar_shape = radar_shape
 
-        self.vehicle_obs = TemporalFeature(time_horizon, shape=self.VEHICLE_FEATURES_SPEC['shape'])
-        self.skills_obs = TemporalFeature(time_horizon, shape=self.SKILL_SPEC['shape'])
-        self.control_obs = TemporalFeature(time_horizon, shape=(4,))
-        self.radar_obs = TemporalFeature(time_horizon * 50, shape=(4,))
-        self.image_obs = TemporalFeature(time_horizon, shape=self.image_shape[:2], axis=-1)
-        self.road_obs = TemporalFeature(time_horizon, shape=self.ROAD_FEATURES_SPEC['shape'])
+        if isinstance(consider_obs_every, int) and consider_obs_every >= 0:
+            # observation skip: consider one observation every N timesteps, discard the others
+            self.vehicle_obs = SkipTemporalFeature(skip=consider_obs_every, horizon=time_horizon,
+                                                   shape=self.VEHICLE_FEATURES_SPEC['shape'])
+
+            self.skills_obs = SkipTemporalFeature(skip=consider_obs_every, horizon=time_horizon,
+                                                  shape=self.SKILL_SPEC['shape'])
+
+            self.control_obs = SkipTemporalFeature(horizon=time_horizon, shape=(4,), skip=consider_obs_every)
+            self.radar_obs = SkipTemporalFeature(horizon=time_horizon * 50, shape=(4,), skip=consider_obs_every)
+
+            self.image_obs = SkipTemporalFeature(horizon=time_horizon, shape=self.image_shape[:2], axis=-1,
+                                                 skip=consider_obs_every)
+
+            self.road_obs = SkipTemporalFeature(horizon=time_horizon, shape=self.ROAD_FEATURES_SPEC['shape'],
+                                                skip=consider_obs_every)
+        else:
+            self.vehicle_obs = TemporalFeature(time_horizon, shape=self.VEHICLE_FEATURES_SPEC['shape'])
+            self.skills_obs = TemporalFeature(time_horizon, shape=self.SKILL_SPEC['shape'])
+            self.control_obs = TemporalFeature(time_horizon, shape=(4,))
+            self.radar_obs = TemporalFeature(time_horizon * 50, shape=(4,))
+            self.image_obs = TemporalFeature(time_horizon, shape=self.image_shape[:2], axis=-1)
+            self.road_obs = TemporalFeature(time_horizon, shape=self.ROAD_FEATURES_SPEC['shape'])
 
         # reward computation
         self.collision_penalty = 0.0
@@ -1033,6 +1098,10 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
         self.last_travelled_distance = 0.0
         self.total_travelled_distance = 0.0
 
+        # action horizon (validity)
+        self.validity_cap = validity_cap
+        self.VALIDITY_SPEC['max_value'] = max_validity
+
     def states(self):
         return dict(image=dict(shape=self.image_obs.shape),
                     radar=dict(type='float', shape=self.radar_obs.shape),
@@ -1043,23 +1112,26 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
                                      max_value=len(self.SKILLS) - 1.0))
 
     def actions(self):
-        return dict(control=self.CONTROL_SPEC, skill=self.SKILL_SPEC)
+        return dict(control=self.CONTROL_SPEC, skill=self.SKILL_SPEC, validity=self.VALIDITY_SPEC)
 
     def policy_network(self, **kwargs) -> List[dict]:
-        features = dict(road=dict(shape=self.road_obs.shape, filters=6, kernel=3, stride=1, layers=4),
-                        vehicle=dict(shape=self.vehicle_obs.shape, filters=6, kernel=(3, 4), layers=4),
-                        past_control=dict(shape=self.control_obs.shape, filters=6, kernel=(3, 1), layers=4))
+        features = dict(road=dict(shape=self.road_obs.shape, filters=6 - 1, kernel=3, stride=1, layers=4),
+                        vehicle=dict(shape=self.vehicle_obs.shape, filters=6 - 1, kernel=(3, 4), layers=4),
+                        past_control=dict(shape=self.control_obs.shape, filters=6 - 1, kernel=(3, 1), layers=4))
 
-        conv_nets = dict(image=dict(filters=22, layers=(2, 5), middle_noise=True, middle_normalization=True),
-                         radar=dict(filters=12, reshape=self.radar_shape, layers=(2, 2), activation1='elu', noise=0.0))
+        conv_nets = dict(image=dict(filters=22 - 4, layers=(2, 5), middle_noise=False, middle_normalization=True),
+                         radar=dict(filters=12 - 2, reshape=self.radar_shape, layers=(2, 2), activation1='elu',
+                                    noise=0.0))
 
-        dense_nets = dict(past_skills=dict(units=[24, 30, 30, 30, 24], activation='swish'))  # 24 -> ~3.6k
+        # dense_nets = dict(past_skills=dict(units=[24, 30, 30, 30, 24], activation='swish'))  # 24 -> ~3.6k
+        dense_nets = dict(past_skills=dict(units=[24, 24, 24, 24], activation='swish'))  # 24 -> ~3.6k
 
         # < 0.02ms (agent.act)
         return Specs.network_v4(convolutional=conv_nets, features=features, dense=dense_nets,
-                                final=dict(units=[320, 224, 224, 128], activation='swish'))  # 284 -> ~242k
+                                final=dict(units=[224, 224, 224, 64], activation='swish'))  # 284 -> ~242k
+        # [320, 224, 224, 128]
 
-    def reward(self, actions, time_cost=-1, d=2.0, w=10.0, s=2.0, v_max=150.0, d_max=100.0, **kwargs) -> float:
+    def reward(self, actions, time_cost=-1, d=2.0, w=3.0, s=2.0, v_max=150.0, d_max=100.0, **kwargs) -> float:
         # Direction term: alignment of the vehicle's forward vector with the waypoint's forward vector
         speed = min(utils.speed(self.vehicle), v_max)
         vel = max(speed / 10.0, 1.0)
@@ -1076,9 +1148,12 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
         speed_limit = self.vehicle.get_speed_limit()
 
         if speed <= speed_limit:
-            speed_penalty = 0.0 if speed >= 10.0 else speed - 10.0
+            # speed_penalty = 0.0 if speed >= 10.0 else speed - 10.0
+            speed_penalty = 0.0 if speed >= 10.0 else -1.0
         else:
             speed_penalty = s * (speed_limit - speed)
+
+        # TODO: includere "risk penalty", ovvere considerare il rischio di replicare azioni per molti passi. (usare exp)
 
         # almost bounded [-2250, +60]
         return time_cost - self.collision_penalty + waypoint_term + direction_penalty + speed_penalty
@@ -1093,7 +1168,13 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
             speed_compliance = 0.0
 
         return self.action_penalty(actions) * (self.last_travelled_distance * self.similarity) - \
-            self.collision_penalty - speed_compliance
+               self.collision_penalty - speed_compliance
+
+    def execute(self, actions, record_path: str = None):
+        state, terminal, reward = super().execute(actions, record_path=record_path)
+        self.collision_penalty = 0.0
+        self.last_travelled_distance = 0.0
+        return state, terminal, reward
 
     def reset(self) -> dict:
         self.last_actions = self.DEFAULT_ACTIONS
@@ -1101,26 +1182,36 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
         self.total_travelled_distance = 0.0
         self.last_travelled_distance = 0.0
 
-        # reset observations (np.copyto() should reuse memory...)
+        # reset observations:
         self.control_obs.reset()
         self.radar_obs.reset()
         self.image_obs.reset()
         self.road_obs.reset()
         self.skills_obs.reset()
         self.vehicle_obs.reset()
-
         observation = super().reset()
 
-        self.last_location = self.spawn_point.location
+        self.last_location = self.vehicle.get_location()
+        # self.last_location = self.origin.location
         return observation
 
-    def execute(self, actions, record_path: str = None):
-        self.last_actions = actions
-
-        next_state, terminal, reward = super().execute(actions, record_path)
-
-        self.collision_penalty = 0.0
-        return next_state, terminal, reward
+    # def execute(self, actions, record_path: str = None):
+    #     self.last_actions = actions
+    #     repeat_actions = int(np.round(actions['validity']))
+    #     next_state = None
+    #     terminal = False
+    #     reward = math.inf
+    #
+    #     assert repeat_actions >= 1
+    #     for _ in range(repeat_actions):
+    #         next_state, terminal, _reward = super().execute(actions, record_path)
+    #         reward = min(reward, _reward)
+    #         self.collision_penalty = 0.0
+    #
+    #         if terminal:
+    #             break
+    #
+    #     return next_state, terminal, reward
 
     def get_skill_name(self):
         """Returns skill's name"""
@@ -1189,10 +1280,11 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
                                                            image_size_x=self.image_size[0],
                                                            image_size_y=self.image_size[1],
                                                            sensor_tick=self.tick_time),
+                    depth=SensorSpecs.depth_camera(position='on-top2', attachment_type='Rigid',
+                                                   image_size_x=self.image_size[0],
+                                                   image_size_y=self.image_size[1],
+                                                   sensor_tick=self.tick_time),
                     radar=SensorSpecs.radar(position='radar', sensor_tick=self.tick_time))
-
-    def default_agent(self, **kwargs) -> Agent:
-        return agents.Agents.ppo6(self, self.max_episode_timesteps(), batch_size=kwargs.get('batch_size', 1))
 
     def on_collision(self, event: carla.CollisionEvent, penalty=1000.0):
         actor_type = event.other_actor.type_id
@@ -1210,7 +1302,7 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
             self.should_terminate = False
 
     def render(self, sensors_data: dict):
-        image = sensors_data['camera']
+        image = np.stack((sensors_data['gray_image'],) * 3, axis=-1)
         env_utils.display_image(self.display, image, window_size=self.window_size)
 
     def debug_text(self, actions):
@@ -1240,14 +1332,20 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
                 'Reward: %.2f' % self.reward(actions),
                 'Collision penalty: %.2f' % self.collision_penalty,
                 'Skill (%d) = %s' % (round(self.last_actions['skill'][0]), self.get_skill_name()),
-                'Coordination %d' % self.action_penalty(actions)]
+                'Coordination: %d' % self.action_penalty(actions),
+                'Action horizon: %d' % int(np.round(actions['validity']))]
 
     def control_to_actions(self, control: carla.VehicleControl):
         pass
 
     def on_sensors_data(self, data: dict) -> dict:
         data['camera'] = self.sensors['camera'].convert_image(data['camera'])
+        data['depth'] = self.sensors['depth'].convert_image(data['depth'])
         data['radar'] = self.sensors['radar'].convert(data['radar'])
+
+        # include depth information in one image:
+        data['camera_plus_depth'] = np.multiply(1 - data['depth'] / 255.0, data['camera'])
+        data['gray_image'] = env_utils.cv2_grayscale(data['camera_plus_depth'])
         return data
 
     def after_world_step(self, sensors_data: dict):
@@ -1261,6 +1359,54 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
         self.control.reverse = bool(actions[2] > 0)
         self.control.hand_brake = False
 
+    # TODO: provide multiple ways to aggregate rewards when repeating actions multiple times (> 1)
+    def learn3(self, agent: Agent, num_episodes: int, save: dict = None, skip_frames=30):
+        """Learning"""
+        should_save = isinstance(save, dict)
+
+        for episode in range(num_episodes):
+            states = self.reset()
+            total_reward = 0.0
+
+            with self.synchronous_context:
+                self.skip(num_frames=skip_frames)
+                t0 = datetime.now()
+
+                i = 0
+                while i < self.max_episode_timesteps():
+                    actions = agent.act(states)
+
+                    repeat_actions = int(min(self.validity_cap, np.round(actions['validity'])))
+                    states = None
+                    terminal = False
+                    reward = math.inf
+
+                    # repeat action for actor-horizon (validity) times
+                    for _ in range(repeat_actions):
+                        i += 1
+
+                        states, terminal, _reward = self.execute(actions)
+                        reward = min(reward, _reward)
+                        terminal = terminal or (i >= self.max_episode_timesteps() - 1)
+
+                        if terminal:
+                            break
+
+                    total_reward += reward
+
+                    if agent.observe(reward, terminal):
+                        print(f'{i + 1}/{self.max_episode_timesteps()} -> update performed.')
+
+                    if terminal:
+                        elapsed = str(datetime.now() - t0).split('.')[0]
+                        print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(total_reward, 2)}\n')
+                        break
+
+                if should_save and (episode % save['frequency'] == 0):
+                    agent.save(directory=save['directory'], filename=save['filename'], format='tensorflow',
+                               append=save.get('append', None))
+                    print('agent saved.')
+
     def get_observation(self, sensors_data: dict) -> dict:
         if len(sensors_data.keys()) == 0:
             # sensor_data is empty so, return a default observation
@@ -1269,13 +1415,13 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
                         past_skills=self.skills_obs.default)
 
         # resize image if necessary
-        image = sensors_data['camera']
+        image = sensors_data['gray_image']
 
         if image.shape != self.image_shape:
             image = env_utils.resize(image, size=self.image_size)
 
         # grayscale image, plus -1, +1 scaling
-        image = (2 * env_utils.cv2_grayscale(image) - 255.0) / 255.0
+        image = (2 * image - 255.0) / 255.0
         radar = sensors_data['radar']
 
         # concat new observations along the temporal axis:
@@ -1283,7 +1429,7 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
         self.control_obs.append(value=self._control_as_vector())
         self.skills_obs.append(value=self.last_actions['skill'].copy())
         self.road_obs.append(value=self._get_road_features())
-        self.image_obs.append(image, depth=True)
+        self.image_obs.append(value=image)
 
         # copy radar measurements
         for i, detection in enumerate(radar):
@@ -1362,5 +1508,431 @@ class MyCARLAEnvironment(CARLABaseEnvironment):
         location2 = self.vehicle.get_location()
 
         self.last_travelled_distance = misc.compute_distance(location1, location2)
-        self.total_travelled_distance += self.last_travelled_distance
+        self.total_travelled_distance += abs(self.last_travelled_distance)
         self.last_location = location2
+
+
+class MyCARLAEnvironment2(MyCARLAEnvironment):
+
+    def __init__(self, *args, discretize: Optional[dict] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        discretize = discretize if isinstance(discretize, dict) else dict()
+        self.round_obs = discretize.get('obs', None)
+        self.round_output = discretize.get('output', None)
+
+    def states(self):
+        return dict(image=dict(shape=self.image_obs.shape),
+                    road=dict(type='float', shape=self.road_obs.shape),
+                    vehicle=dict(type='float', shape=self.vehicle_obs.shape),
+                    past_control=dict(type='float', shape=self.control_obs.shape),
+                    past_skills=dict(type='float', shape=self.skills_obs.shape, min_value=0.0,
+                                     max_value=len(self.SKILLS) - 1.0))
+
+    def policy_network(self, **kwargs) -> List[dict]:
+        features = dict(road=dict(shape=self.road_obs.shape, filters=4, kernel=3, stride=1, layers=2, global_pool=None),
+                        vehicle=dict(shape=self.vehicle_obs.shape, filters=6, kernel=3, layers=2, global_pool=None),
+                        past_control=dict(shape=self.control_obs.shape, filters=8, kernel=(3, 1), layers=2))
+
+        # 126 -> 332k
+        conv_nets = dict(image=dict(filters=8, layers=(2, 5), noise=0.0, middle_noise=False, filters_multiplier=2.25,
+                                    middle_normalization=True, activation1='relu'))
+
+        dense_nets = dict(past_skills=dict(units=[24, 24, 24, 24], activation='swish'))
+
+        # concat 126 (image) + 24 (road) + 12 (vehicle) + 16 (control) + 24 (skills) =  202
+        return Specs.network_v4(convolutional=conv_nets, features=features, dense=dense_nets,
+                                final=dict(units=[196, 196, 196, 196], activation='swish'))
+
+    def get_observation(self, sensors_data: dict) -> dict:
+        if len(sensors_data.keys()) == 0:
+            # sensor_data is empty so, return a default observation
+            return dict(image=self.image_obs.default, vehicle=self.vehicle_obs.default, road=self.road_obs.default,
+                        past_control=self.control_obs.default, past_skills=self.skills_obs.default)
+
+        # resize image if necessary
+        image = sensors_data['gray_image']
+
+        if image.shape != self.image_shape:
+            image = env_utils.resize(image, size=self.image_size)
+
+        # grayscale image, plus -1, +1 scaling
+        image = (2 * image - 255.0) / 255.0
+        radar = sensors_data['radar']
+
+        # concat new observations along the temporal axis:
+        self.vehicle_obs.append(value=self._get_vehicle_features())
+        self.control_obs.append(value=self._control_as_vector())
+        self.skills_obs.append(value=self.last_actions['skill'].copy())
+        self.road_obs.append(value=self._get_road_features())
+        self.image_obs.append(value=image)
+
+        # observation
+        if isinstance(self.round_obs, int):
+            return dict(image=np.round(self.image_obs.data, decimals=self.round_obs),
+                        vehicle=np.round(self.vehicle_obs.data, decimals=self.round_obs),
+                        road=np.round(self.road_obs.data, decimals=self.round_obs),
+                        past_control=np.round(self.control_obs.data, decimals=self.round_obs),
+                        past_skills=np.round(self.skills_obs.data, decimals=self.round_obs))
+
+        return dict(image=self.image_obs.data, vehicle=self.vehicle_obs.data,
+                    road=self.road_obs.data, past_control=self.control_obs.data, past_skills=self.skills_obs.data)
+
+
+class CARLACollectTraces(MyCARLAEnvironment2):
+
+    def collect(self, num_traces: int, traces_dir: str, skip_frames=30):
+        """Collects experience traces used for pretraining agents"""
+        from agents import Agents
+
+        try:
+            agent = Agents.validity_pretraining(self, traces_dir=traces_dir)
+
+            self.learn(agent, num_episodes=num_traces, skip_frames=skip_frames)
+        finally:
+            self.close()
+
+    def reward(self, actions, time_cost=-1, d=2.0, w=10.0, s=2.0, v_max=150.0, d_max=100.0, **kwargs) -> float:
+        speed = min(utils.speed(self.vehicle), v_max)
+        direction_penalty = max(speed / 10.0, 1.0) * 1 * (self.action_penalty(actions) + 1)
+        waypoint_term = 0.0
+
+        # Speed-limit compliance:
+        speed_limit = self.vehicle.get_speed_limit()
+        speed_penalty = s * (speed_limit - speed) if speed > speed_limit else 0.0
+
+        return time_cost - self.collision_penalty + waypoint_term + direction_penalty + speed_penalty
+
+    def _skill_from_control(self, control: carla.VehicleControl, eps=0.05) -> (float, str):
+        t = control.throttle
+        s = control.steer
+        b = control.brake
+        r = control.reverse
+
+        # backward:
+        if r and (t > eps) and (b <= eps):
+            if s > eps:
+                skill = 9
+            elif s < -eps:
+                skill = 8
+            else:
+                skill = 7
+        # forward:
+        elif (not r) and (t > eps) and (b <= eps):
+            if s > eps:
+                skill = 6
+            elif s < -eps:
+                skill = 5
+            else:
+                skill = 4
+        # steer:
+        elif (t <= eps) and (b <= eps):
+            if s > eps:
+                skill = 2
+            elif s < -eps:
+                skill = 3
+            else:
+                skill = 0
+        # brake:
+        elif b > eps:
+            skill = 1
+        else:
+            skill = 0
+
+        return skill, self.SKILLS[skill]
+
+    def control_to_actions(self, control: carla.VehicleControl):
+        skill, name = self._skill_from_control(control)
+        skill = np.array([skill], dtype=np.float32)
+        steer = control.steer
+        reverse = bool(control.reverse > 0)
+
+        if control.throttle > 0.0:
+            return dict(control=[control.throttle, steer, reverse], skill=skill, validity=1), name
+        else:
+            return dict(control=[-control.brake, steer, reverse], skill=skill, validity=1), name
+
+
+class MyCARLAEnvironmentNoSkill(MyCARLAEnvironment):
+
+    def __init__(self, *args, disable_reverse=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.disable_reverse = disable_reverse
+
+    def states(self):
+        return dict(image=dict(shape=self.image_obs.shape),
+                    road=dict(type='float', shape=self.road_obs.shape),
+                    vehicle=dict(type='float', shape=self.vehicle_obs.shape),
+                    past_control=dict(type='float', shape=self.control_obs.shape))
+
+    def actions(self):
+        return dict(control=self.CONTROL_SPEC, validity=self.VALIDITY_SPEC)
+
+    def actions_to_control(self, actions):
+        super().actions_to_control(actions)
+
+        if self.disable_reverse:
+            self.control.reverse = False
+
+    def reward(self, actions, time_cost=-1, d=2.0, w=3.0, s=2.0, v_max=150.0, d_max=100.0, **kwargs) -> float:
+        # Direction term: alignment of the vehicle's forward vector with the waypoint's forward vector
+        speed = min(utils.speed(self.vehicle), v_max)
+
+        if 0.8 <= self.similarity <= 1.0:
+            direction_penalty = speed * self.similarity
+        else:
+            direction_penalty = (speed + 1.0) * abs(self.similarity) * -d
+
+        # Distance from waypoint (and also lane center)
+        waypoint_term = min(self.route.distance_to_next_waypoint(), d_max)
+        waypoint_term = -waypoint_term if waypoint_term <= 5.0 else waypoint_term * -w
+
+        # Speed-limit compliance:
+        speed_limit = self.vehicle.get_speed_limit()
+        speed_penalty = s * (speed_limit - speed) if speed > speed_limit else 0.0
+
+        # Risk penalty discourages long action's horizon (validity)
+        # risk_penalty = x**(self.last_actions['validity'] - 1)
+
+        return time_cost - self.collision_penalty + waypoint_term + direction_penalty + speed_penalty
+
+    def reward2(self, actions, s=2.0, max_speed=150.0, **kwargs) -> float:
+        speed = min(utils.speed(self.vehicle), max_speed)
+        speed_limit = self.vehicle.get_speed_limit()
+
+        if speed > speed_limit:
+            speed_compliance = s * (speed - speed_limit)
+        else:
+            speed_compliance = 0.0
+
+        return (self.last_travelled_distance * self.similarity) - self.collision_penalty - speed_compliance
+
+    def default_sensors(self) -> dict:
+        sensors = super().default_sensors()
+        sensors.pop('radar')
+        return sensors
+
+    def on_sensors_data(self, data: dict) -> dict:
+        data['camera'] = self.sensors['camera'].convert_image(data['camera'])
+        data['depth'] = self.sensors['depth'].convert_image(data['depth'])
+
+        # include depth information in one image:
+        data['camera_plus_depth'] = np.multiply(1 - data['depth'] / 255.0, data['camera'])
+        data['gray_image'] = env_utils.cv2_grayscale(data['camera_plus_depth'])
+        return data
+
+    def policy_network(self, **kwargs) -> List[dict]:
+        # road: 16 -> ~2.5k, vehicle: 24 -> ~3.3k, control: 12 -> ~2.1k
+        features = dict(road=dict(shape=self.road_obs.shape, filters=6, layers=3, spatial_dropout=0.2,
+                                  activation1='tanh', activation2='relu',
+                                  dense=dict(units=16, layers=2, activation='swish', dropout=0.0))
+                        ,
+                        vehicle=dict(shape=self.vehicle_obs.shape, filters=6, layers=3, spatial_dropout=0.2,
+                                     activation1='tanh', activation2='relu',
+                                     dense=dict(units=24, layers=2, activation='swish', dropout=0.0))
+                        ,
+                        past_control=dict(shape=self.control_obs.shape, filters=6, layers=3, spatial_dropout=0.2,
+                                          activation1='tanh', activation2='relu',
+                                          dense=dict(units=12, layers=2, activation='swish', dropout=0.0)))
+
+        # 128 -> ~365k
+        conv_nets = dict(image=dict(filters=8, layers=(2, 5), noise=0.05, middle_noise=False, filters_multiplier=2.25,
+                                    middle_normalization=True, activation1='relu', dropout=0.2,
+                                    final_dense=dict(units=128, layers=2, activation='swish', dropout=0.0)))
+
+        # concat 128 (image) + 16 (road) + 24 (vehicle) + 12 (control) =  180
+        return Specs.network_v5(convolutional=conv_nets, features=features, dense=dict(),
+                                final=dict(units=[224, 224, 224, 224], activation='swish'))
+
+    def learn3(self, agent: Agent, num_episodes: int, save: dict = None, skip_frames=30, r_min=-2000.0, r_max=150.0):
+        """Learning"""
+        should_save = isinstance(save, dict)
+
+        for episode in range(num_episodes):
+            states = self.reset()
+            total_reward = 0.0
+
+            with self.synchronous_context:
+                self.skip(num_frames=skip_frames)
+                t0 = datetime.now()
+
+                i = 0
+                while i < self.max_episode_timesteps():
+                    actions = agent.act(states)
+
+                    repeat_actions = int(min(self.validity_cap, np.round(actions['validity'])))
+                    states = None
+                    terminal = False
+                    rewards = []
+
+                    # repeat action for actor-horizon (validity) times
+                    for _ in range(repeat_actions):
+                        states, terminal, reward = self.execute(actions)
+                        rewards.append(reward)
+                        terminal = terminal or (i >= self.max_episode_timesteps() - 1)
+
+                        i += 1
+                        if terminal:
+                            break
+
+                    reward = self.aggregate_reward(rewards, r_max, r_min)
+                    total_reward += reward
+
+                    if agent.observe(reward, terminal):
+                        print(f'{i + 1}/{self.max_episode_timesteps()} -> update performed.')
+
+                    if terminal:
+                        elapsed = str(datetime.now() - t0).split('.')[0]
+                        print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(total_reward, 2)}\n')
+                        break
+
+                if should_save and (episode % save['frequency'] == 0):
+                    agent.save(directory=save['directory'], filename=save['filename'], format='tensorflow',
+                               append=save.get('append', None))
+                    print('agent saved.')
+
+    def evaluate(self, agent: Agent, num_episodes: int, skip_frames=30, r_max=150.0, r_min=-2000.0) -> List[float]:
+        """Evaluation"""
+        episodic_rewards = []
+        internals = agent.initial_internals()
+
+        for episode in range(num_episodes):
+            states = self.reset()
+            episode_reward = 0.0
+
+            with self.synchronous_context:
+                self.skip(num_frames=skip_frames)
+                t0 = datetime.now()
+
+                i = 0
+                while i < self.max_episode_timesteps():
+                    actions, internals = agent.act(states, internals=internals, evaluation=True)
+
+                    repeat_actions = int(min(self.validity_cap, np.round(actions['validity'])))
+                    states = None
+                    terminal = False
+                    rewards = []
+
+                    # repeat action for actor-horizon (validity) times
+                    for _ in range(repeat_actions):
+                        states, terminal, reward = self.execute(actions)
+                        rewards.append(reward)
+                        terminal = terminal or (i >= self.max_episode_timesteps() - 1)
+
+                        i += 1
+                        if terminal:
+                            break
+
+                    reward = self.aggregate_reward(rewards, r_max, r_min)
+                    episode_reward += reward
+
+                    if terminal:
+                        elapsed = str(datetime.now() - t0).split('.')[0]
+                        episodic_rewards.append(episode_reward)
+                        print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(episode_reward, 2)}\n')
+                        break
+
+        return episodic_rewards
+
+    def get_observation(self, sensors_data: dict) -> dict:
+        if len(sensors_data.keys()) == 0:
+            # sensor_data is empty so, return a default observation
+            return dict(image=self.image_obs.default, vehicle=self.vehicle_obs.default, road=self.road_obs.default,
+                        past_control=self.control_obs.default)
+
+        # resize image if necessary
+        image = sensors_data['gray_image']
+
+        if image.shape != self.image_shape:
+            image = env_utils.resize(image, size=self.image_size)
+
+        # grayscale image, plus -1, +1 scaling
+        image = (2 * image - 255.0) / 255.0
+
+        # concat new observations along the temporal axis:
+        self.vehicle_obs.append(value=self._get_vehicle_features())
+        self.control_obs.append(value=self._control_as_vector())
+        self.road_obs.append(value=self._get_road_features())
+        self.image_obs.append(value=image)
+
+        # observation
+        return dict(image=self.image_obs.data, vehicle=self.vehicle_obs.data, road=self.road_obs.data,
+                    past_control=self.control_obs.data)
+
+    def debug_text(self, actions):
+        speed_limit = self.vehicle.get_speed_limit()
+        speed = utils.speed(self.vehicle)
+        distance = self.total_travelled_distance
+
+        if speed > speed_limit:
+            speed_text = dict(text='Speed %.1f km/h' % speed, color=(255, 0, 0))
+        else:
+            speed_text = 'Speed %.1f km/h' % speed
+
+        return ['%d FPS' % self.clock.get_fps(),
+                '',
+                'Throttle: %.2f' % self.control.throttle,
+                'Steer: %.2f' % self.control.steer,
+                'Brake: %.2f' % self.control.brake,
+                'Reverse: %s' % ('T' if self.control.reverse else 'F'),
+                '',
+                speed_text,
+                'Speed limit %.1f km/h' % speed_limit,
+                'Distance travelled %.2f %s' % ((distance / 1000.0, 'km') if distance > 1000.0 else (distance, 'm')),
+                '',
+                'Similarity %.2f' % self.similarity,
+                'Waypoint\'s Distance %.2f' % self.route.distance_to_next_waypoint(),
+                '',
+                'Reward: %.2f' % self.reward(actions),
+                'Collision penalty: %.2f' % self.collision_penalty,
+                'Action horizon: %d' % int(np.round(actions['validity']))]
+
+    @staticmethod
+    def aggregate_reward(rewards: list, r_max: float, r_min: float) -> float:
+        weights = np.divide(rewards, np.max(rewards))
+        w_sum = sum(weights)
+
+        if w_sum == 0.0:
+            return 0.0
+
+        # ensure reward is in bound [r_min, r_max]
+        return max(r_min, min(r_max, sum(np.multiply(rewards, weights)) / w_sum))
+
+
+class CARLACollectTracesNoSkill(MyCARLAEnvironmentNoSkill):
+
+    def collect(self, num_traces: int, traces_dir: str, skip_frames=30):
+        """Collects experience traces used for pretraining agents"""
+        from agents import Agents
+
+        try:
+            agent = Agents.validity_pretraining_no_skill(self, traces_dir=traces_dir)
+
+            self.learn(agent, num_episodes=num_traces, skip_frames=skip_frames)
+        finally:
+            self.close()
+
+    def reward(self, actions, time_cost=-1, d=2.0, w=3.0, s=2.0, v_max=150.0, d_max=100.0, **kwargs) -> float:
+        # Direction term: alignment of the vehicle's forward vector with the waypoint's forward vector
+        speed = min(utils.speed(self.vehicle), v_max)
+        direction_penalty = speed
+
+        # Distance from waypoint (and also lane center)
+        waypoint_term = min(self.route.distance_to_next_waypoint(), d_max)
+        # waypoint_term = 0.0 if waypoint_term <= 1 else waypoint_term * -w
+        waypoint_term = -waypoint_term if waypoint_term <= 5.0 else waypoint_term * -w
+
+        # Speed-limit compliance:
+        speed_limit = self.vehicle.get_speed_limit()
+        speed_penalty = s * (speed_limit - speed) if speed > speed_limit else 0.0
+
+        return time_cost - self.collision_penalty + waypoint_term + direction_penalty + speed_penalty
+
+    def control_to_actions(self, control: carla.VehicleControl):
+        steer = control.steer
+        reverse = bool(control.reverse > 0)
+
+        if control.throttle > 0.0:
+            return dict(control=[control.throttle, steer, reverse], validity=1)
+        else:
+            return dict(control=[-control.brake, steer, reverse], validity=1)

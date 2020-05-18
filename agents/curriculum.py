@@ -113,7 +113,16 @@ class CurriculumLearning(object):
         if spec is None:
             return
 
-        env_utils.pretrain(agent, num_traces=spec['num_traces'], traces_dir=spec['traces_dir'], save=self.save)
+        times = spec.get('times', 0)
+
+        if times > 0 or times == 'always':
+            assert isinstance(times, int) or isinstance(times, str)
+
+            env_utils.pretrain(agent, num_traces=spec['num_traces'], traces_dir=spec['traces_dir'], save=self.save,
+                               num_updates=spec.get('num_updates', 1))
+
+            if isinstance(times, int):
+                spec['times'] = times - 1
 
     @staticmethod
     def is_successful(stage: dict, episodic_rewards: List[float]) -> (bool, float, float):
@@ -125,7 +134,12 @@ class CurriculumLearning(object):
 
         # some statistics
         avg_reward = sum(episodic_rewards) / len(episodic_rewards)
-        rate = len(episodic_rewards) / count
+
+        if count > 0:
+            rate = len(episodic_rewards) / count
+        else:
+            rate = 0
+
         success = rate >= stage['success_rate']
         return success, rate, avg_reward
 
@@ -133,11 +147,12 @@ class CurriculumLearning(object):
         for i, stage in enumerate(self.curriculum):
             print(f"Stage-{i}")
             agent, environment = self.initialize(**stage.get('environment', dict()))
-
-            self.pretrain(agent, spec=stage.get('pretrain', None))
+            pretrain_spec = stage.get('pretrain', None)
 
             for j in range(stage.get('repeat', 1)):
-                print(f"\tTrial-{i}")
+                print(f"\tTrial-{j}")
+                self.pretrain(agent, spec=pretrain_spec)
+
                 environment.learn3(agent, num_episodes=stage['learn_episodes'], save=self.save)
                 episodic_rewards = environment.evaluate(agent, num_episodes=stage['eval_episodes'])
 

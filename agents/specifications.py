@@ -1,7 +1,8 @@
 """A list of classes that wraps specifications dict for the ease of defining TensorforceAgents agents"""
 
-from tensorforce import Agent
+import tensorflow as tf
 
+from tensorforce import Agent
 from typing import Optional, Union, List, Tuple, Dict, Callable
 
 
@@ -217,6 +218,10 @@ class NetworkSpec:
     def flatten(self, **kwargs):
         self.add_layer(dict(type='flatten', **kwargs))
 
+    def function(self, tf_function, **kwargs):
+        assert callable(tf_function)
+        self.add_layer(dict(type='function', function=tf_function, **kwargs))
+
     def dense(self, units: int, activation='relu', dropout=0.0):
         self.add_layer(dict(type='dense', size=units, activation=activation, dropout=dropout))
 
@@ -227,6 +232,27 @@ class NetworkSpec:
     def rnn(self, size: int, cell='gru', return_final_state=True, activation='tanh', dropout=0.0, **kwargs):
         self.add_layer(dict(type='rnn', cell=cell, size=size, return_final_state=return_final_state,
                             activation=activation, dropout=dropout, **kwargs))
+
+    def keras_rnn(self, units: int, cell='gru', activation='tanh', recurrent_activation='sigmoid', dropout=0.0,
+                  recurrent_dropout=0.0, return_sequences=False, return_state=False, stateful=False):
+        """
+        - return_sequences: Whether to return the last output in the output sequence, or the full sequence.
+        - return_state: Whether to return the last state in addition to the output. (suggested: True)
+        - stateful: If True, the last state for each sample at index i in a batch will be used as initial state for the
+                    sample of index i in the following batch. (suggested: True)
+
+        """
+        assert cell in ['gru', 'lstm']
+
+        self.add_layer(dict(type='keras', layer=cell.upper(), units=units, activation=activation, dropout=dropout,
+                            recurrent_activation=recurrent_activation, recurrent_dropout=recurrent_dropout,
+                            return_sequences=return_sequences, return_state=return_state, stateful=stateful))
+
+    def relu6(self):
+        self.function(tf_function=tf.nn.relu6)
+
+    def leaky_relu(self):
+        self.function(tf_function=tf.nn.leaky_relu)
 
     def conv2d_max_pool(self, filters, kernels: List[IntOrPair], strides: List[IntOrPair], activation='relu',
                         dropout=0.0, filter_increase=2):
@@ -268,8 +294,10 @@ class Networks:
 
     @staticmethod
     def my_cnn(inputs: str, output: str, filters=32, activation1='tanh', activation2='elu', dropout=0.2, reshape=None,
-               layers=(2, 5), noise=0.05, middle_noise=False, normalization='instance', middle_normalization=False):
+               layers=(2, 5), noise=0.05, middle_noise=False, normalization='instance', middle_normalization=False,
+               filters_multiplier=1, final_dense: dict = None):
         assert len(layers) == 2
+        assert filters_multiplier > 0
         network = NetworkSpec(inputs, output)
 
         if isinstance(reshape, tuple):
@@ -283,9 +311,10 @@ class Networks:
         # part 1:
         for i in range(1, layers[0] + 1):
             network.depthwise_conv2d(kernel=(3, 3), padding='same', depth_multiplier=1, activation=activation1)
-            network.conv2d(filters=filters * i, kernel=(3, 3), padding='same', activation=activation2)
+            network.conv2d(filters=int(filters * i * filters_multiplier), kernel=(3, 3), padding='same',
+                           activation=activation2)
             network.spatial_dropout(rate=dropout)
-            network.max_pool2d(window=3, stride=2)
+            network.max_pool2d(window=3, stride=2)  # overlapping max-pool
 
         if middle_normalization:
             network.add_normalization(kind=normalization)
@@ -297,10 +326,20 @@ class Networks:
         for i in range(1, layers[1] + 1):
             padding = 'same' if i % 2 == 0 else 'valid'
             network.depthwise_conv2d(kernel=(3, 3), padding=padding, depth_multiplier=1, activation=activation1)
-            network.conv2d(filters=filters * (i + layers[0]), kernel=(3, 3), padding='valid', activation=activation2)
+            network.conv2d(filters=int(filters * (i + layers[0]) * filters_multiplier), kernel=(3, 3), padding='valid',
+                           activation=activation2)
             network.spatial_dropout(rate=dropout)
 
         network.global_avg_pooling()
+
+        # dense layers at the end:
+        final_dense = final_dense if isinstance(final_dense, dict) else dict()
+        assert ('units' in final_dense) and ('layers' in final_dense)
+
+        for _ in range(final_dense['layers']):
+            network.dense(units=final_dense['units'], activation=final_dense.get('activation', 'relu'),
+                          dropout=final_dense.get('dropout', 0.0))
+
         return network.build()
 
     @staticmethod
@@ -378,35 +417,52 @@ class Networks:
 
         network = NetworkSpec(inputs, output)
         network.add_normalization(kind=normalization)
-        # network.reshape(shape=shape + (1,), name='my_reshape')  # makes the shape like (h, w, 1)
         network.reshape(shape=shape + (1,))  # makes the shape like (h, w, 1)
-        # network.add_layer(dict(type='register', tensor='_reshape'))  # register reshape's output for later use
 
         # main conv. branch:
         for i in range(1, layers + 1):
             network.conv2d(filters * i, kernel, stride, activation, dropout)
-            # network.add_normalization(kind=normalization)
 
         if isinstance(global_pool, str):
-            # network.global_pooling(reduction=global_pool, name='main_out')
             network.global_pooling(reduction=global_pool)
         else:
-            # network.flatten(name='main_out')
             network.flatten()
 
-        # # register main branch's output
-        # # network.add_layer(dict(type='register', tensor="_main_out"))
-        #
-        # # summarize: apply a conv. kernel (1, shape[1]) with stride 1 and one filter
-        # # network.add_layer(dict(type='retrieve', tensors=['_reshape']))
-        # network.add_layer(dict(type='reuse', name='my_reshape'))
-        # network.add_layer(dict(type='conv2d', size=1, window=(1, shape[1]), stride=1, activation=activation))
-        # network.add_layer(dict(type='reshape', shape=(shape[0], ), name='reshape_2'))
-        # # network.add_layer(dict(type='register', tensor='_summary'))
-        #
-        # # concat main conv. branch output with summary output:
-        # # network.add_layer(dict(type='retrieve', tensors=['_main_out', '_summary'], aggregation='concat'))
-        # network.add_layer(dict(type='retrieve', tensors=['main_out', 'reshape_2'], aggregation='concat'))
+        return network.build()
+
+    @staticmethod
+    def feature2d_v2(inputs: str, output: str, shape: Tuple[int, int], filters: int, layers=2, dense: dict = None,
+                     activation1='tanh', activation2='elu', spatial_dropout=0.2, normalization='layer',
+                     depth_multiplier=2) -> List[dict]:
+        """A convolutional-like network to process matrix-like (2D) features.
+            - If [normalization=None], no normalization is used at all.
+        """
+        assert len(shape) > 1
+        assert 0.0 <= spatial_dropout < 1.0
+
+        network = NetworkSpec(inputs, output)
+        network.add_normalization(kind=normalization)
+        network.reshape(shape=shape + (1,))
+
+        # convolutional embedding (transform input with pointwise, i.e. 1x1, convolutions)
+        network.conv2d(filters, kernel=1, activation=activation1, dropout=0.0)
+
+        for i in range(1, layers + 1):
+            filters *= depth_multiplier
+            network.separable_conv2d(filters=round(filters), kernel=1, activation=activation2)
+
+            if spatial_dropout > 0.0:
+                network.spatial_dropout(rate=spatial_dropout)
+
+        # reduce depth to 1 (convolutional aggregation)
+        network.separable_conv2d(filters=1, kernel=1, activation=activation1)
+        network.flatten()
+
+        # dense bottleneck
+        if isinstance(dense, dict):
+            for _ in range(dense['layers']):
+                network.dense(units=dense['units'], activation=dense.get('activation', 'relu'),
+                              dropout=dense.get('dropout', 0.0))
 
         return network.build()
 
@@ -453,7 +509,7 @@ class Networks:
 
     @staticmethod
     def complex(networks: [[dict]], layers=2, units: IntOrList = 64, activation='relu', dropout=0.0,
-                aggregation='concat', rnn: dict = None) -> List[dict]:
+                aggregation='concat', rnn: dict = None, discretize=None) -> List[dict]:
         network = networks
         outputs = []
 
@@ -467,15 +523,20 @@ class Networks:
         # aggregate them
         network.append(dict(type='retrieve', tensors=outputs, aggregation=aggregation))
 
-        # for i in range(layers):
-        #     network.append(dict(type='dense', size=units, activation=activation, dropout=dropout))
-
         network.extend(Networks.dense(units=units, layers=layers, activation=activation, dropout=dropout))
 
         if rnn and rnn.get('length', 0) > 0:
             network.append(dict(type='internal_rnn', cell=rnn.get('cell', 'lstm'), size=rnn.get('units', 128),
                                 length=rnn.get('length'), bias=True, activation=rnn.get('activation', 'none'),
                                 dropout=dropout))
+
+        if isinstance(discretize, int) and discretize >= 0:
+            def tf_discrete(x):
+                multiplier = tf.constant(10**discretize, dtype=x.dtype)
+                return tf.round(x * multiplier) / multiplier
+
+            network.append(dict(type='function', function=tf_discrete))
+
         return network
 
 
@@ -512,9 +573,11 @@ class Specifications:
                     estimate_advantage=estimate_advantage)
 
     @staticmethod
-    def policy(network: dict, distributions: str = None, temperature: Optional[float] = None, infer_states_value=False):
+    def policy(network: Union[dict, List[dict]], distributions: str = None, temperature: Optional[float] = None,
+               infer_states_value=False, use_beta_distribution=True):
         policy_spec = dict(type='parametrized_distributions',
                            infer_states_value=infer_states_value,
+                           use_beta_distribution=use_beta_distribution,
                            network=network)
 
         if distributions is not None:
@@ -654,7 +717,7 @@ class Specifications:
             networks.append(conv_net)
 
         for name, args in features.items():
-            feature_net = Networks.feature2d_skip(inputs=name, output=name + "_out", **args)
+            feature_net = Networks.feature2d_v2(inputs=name, output=name + "_out", **args)
             networks.append(feature_net)
 
         for name, args in dense.items():

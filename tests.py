@@ -1,13 +1,15 @@
 """Test cases"""
 
 import os
+import random
+import tensorflow as tf
 
 from tensorforce import Environment, Runner
 
 from agents import Specs
 from agents.curriculum import CurriculumLearning
 from agents.experiments import *
-from agents.environment import SynchronousCARLAEnvironment, MyCARLAEnvironment
+from agents.environment import *
 
 
 # -------------------------------------------------------------------------------------------------
@@ -215,20 +217,99 @@ def test_saver(num_episodes: int, level='LunarLanderContinuous-v2'):
 # -- Curriculum Learning
 # -------------------------------------------------------------------------------------------------
 
-def curriculum_learning():
-    map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
-    # indexes: 58, 159
-    # spawn_point = map.get_spawn_points()[58]
-    spawn_point = env_utils.random_spawn_point(world_map=map)
-    print(spawn_point)
+def curriculum_learning(batch_size: int, random_seed: int):
+    tf.compat.v1.random.set_random_seed(random_seed)
+    random.seed(42)
+    print(f'random seed = 42, tf.random_seed = {random_seed}')
 
-    cl = CurriculumLearning(agent_spec=dict(callable=Agents.ppo7, batch_size=1, summarizer=Specs.summarizer()),
-                            env_spec=dict(callable=MyCARLAEnvironment, max_timesteps=64, image_shape=(75, 105, 3),
-                                          window_size=(670, 500)),
+    world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
+    spawn_point, destination = _get_origin_destination(world_map)
+    print('origin', spawn_point)
+    print('destination', destination)
+
+    cl = CurriculumLearning(agent_spec=dict(callable=Agents.ppo7, batch_size=batch_size, summarizer=Specs.summarizer(),
+                                            optimization_steps=10, entropy=0.0, critic_lr=1e-4, subsampling_fraction=0.2),
+                            env_spec=dict(callable=MyCARLAEnvironment2, max_timesteps=400, image_shape=(75, 105, 3),
+                                          window_size=(670, 500), time_horizon=5),
                             curriculum=[
-                                dict(environment=dict(spawning=dict(point=spawn_point)),
-                                     learn_episodes=64, eval_episodes=8, target_reward=10.0, success_rate=0.5, repeat=2)
+                                dict(environment=dict(path=dict(origin=spawn_point, destination=destination),
+                                                      vehicle_filter='vehicle.tesla.model3'),
+                                     pretrain=dict(traces_dir='data/traces/stage1', num_traces=32),  # 80 (64~96)
+                                     learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5, repeat=8)
                             ],
-                            save=dict(directory='weights/curriculum', filename='ppo7', frequency=16,
-                                      append='episodes'))
+                            save=dict(directory='weights/curriculum', filename='ppo7', frequency=32))
     cl.start()
+
+
+def curriculum_learning2(batch_size: int, random_seed: int, weights_dir: str, image_shape=(75, 105, 3), time_horizon=5,
+                         timesteps=400):
+    if random_seed is not None:
+        tf.compat.v1.random.set_random_seed(random_seed)
+
+    random.seed(42)
+    print(f'random seed = 42, tf.random_seed = {random_seed}')
+
+    world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
+    spawn_point, destination = _get_origin_destination(world_map)
+    print('origin', spawn_point)
+    print('destination', destination)
+
+    # optimizer: adadelta, adamax, adam
+    cl = CurriculumLearning(agent_spec=dict(callable=Agents.ppo8, batch_size=batch_size, summarizer=Specs.summarizer(),
+                                            optimization_steps=10, entropy=0.0, critic_lr=3e-5, lr=1e-5, clipping=0.25,
+                                            optimizer='adam', noise=0.2,
+                                            decay=dict(clipping=dict(steps=10_000, type='linear'),
+                                                       noise=dict(steps=200, type='linear'),
+                                                       lr=dict(steps=10_000, type='linear')),
+                                            subsampling_fraction=0.2,
+                                            # recorder={'directory': 'data/traces/ppo8', 'max-traces': 128}
+                                            ),
+
+                            env_spec=dict(callable=MyCARLAEnvironmentNoSkill, max_timesteps=timesteps,
+                                          image_shape=image_shape, window_size=(670, 500), time_horizon=time_horizon),
+
+                            curriculum=[
+                                dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
+                                                      disable_reverse=True, max_validity=10.0, validity_cap=10.0,
+                                                      path=dict(origin=spawn_point, destination=destination)),
+
+                                     pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=0),
+                                     learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
+                                     repeat=8)
+                            ],
+                            save=dict(directory=weights_dir, filename='ppo8', frequency=32))
+    cl.start()
+
+
+def collect_traces_stage1(num_traces: int, traces_dir: str, time_horizon: int, round_obs=None):
+    random.seed(42)
+    world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
+    spawn_point, destination = _get_origin_destination(world_map)
+
+    env = CARLACollectTraces(max_timesteps=512, vehicle_filter='vehicle.tesla.model3', time_horizon=time_horizon,
+                             path=dict(origin=spawn_point, destination=destination), image_shape=(75, 105, 3),
+                             window_size=(670, 500), discretize=dict(obs=round_obs))
+
+    env.collect(num_traces, traces_dir)
+
+
+def collect_traces2_stage1(num_traces: int, traces_dir: str, time_horizon=5, timesteps=400, image_shape=(75, 105, 3)):
+    random.seed(42)
+    world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
+    spawn_point, destination = _get_origin_destination(world_map)
+
+    env = CARLACollectTracesNoSkill(max_timesteps=timesteps, vehicle_filter='vehicle.tesla.model3',
+                                    time_horizon=time_horizon, window_size=(670, 500),
+                                    path=dict(origin=spawn_point, destination=destination),
+                                    # path=dict(origin=dict(point=spawn_point, type='route'), destination=destination),
+                                    image_shape=image_shape)
+
+    env.collect(num_traces, traces_dir)
+
+
+def _get_origin_destination(world_map):
+    available_points = world_map.get_spawn_points()
+    spawn_point = random.choice(available_points)
+    random.shuffle(available_points)
+    destination = random.choice(available_points).location
+    return spawn_point, destination

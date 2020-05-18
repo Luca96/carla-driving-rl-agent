@@ -3,8 +3,11 @@ import pygame
 import logging
 import tensorflow as tf
 
+import carla
 import tests
-from agents.experiments import SkipTrickExperiment
+
+from tensorforce import Agent, Environment
+from agents import env_utils
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logger = tf.get_logger()
@@ -24,7 +27,7 @@ if __name__ == '__main__':
     # https://docs.unrealengine.com/en-US/Programming/Basics/CommandLineArguments/index.html
 
     # Test cases:
-    # tests.test_keyboard_agent(version=-2)
+    # tests.test_keyboard_agent()
     # tests.ppo_experiment(num_episodes=30, num_timesteps=512, load=True, image_shape=(75, 105, 3))  # 70k steps
     # tests.toy_example()
     # tests.new_env(episodes=3)
@@ -89,6 +92,12 @@ if __name__ == '__main__':
     #                         agent_args=dict(batch_size=1, optimization_steps=4))
 
     # tests.test_saver(num_episodes=500)
-    tests.curriculum_learning()
+    # tests.curriculum_learning(batch_size=1, random_seed=31)   # [42, 31]
+
+    # tests.collect_traces2_stage1(num_traces=1, traces_dir='data/traces/stage1', time_horizon=5)
+
+    # seeds 31, 42
+    tests.curriculum_learning2(batch_size=1, random_seed=71, time_horizon=5, timesteps=400,
+                               weights_dir='weights/curriculum3')
 
     pygame.quit()

@@ -1,14 +1,19 @@
+from collections import OrderedDict
+
+import os
+import time
 import carla
 import pygame
+import numpy as np
 
 from typing import Optional, Tuple
 from pygame.constants import K_q, K_UP, K_w, K_LEFT, K_a, K_RIGHT, K_d, K_DOWN, K_s, K_SPACE, K_ESCAPE, KMOD_CTRL
 
-from tensorforce import Agent
-from tensorforce.agents import PPOAgent
+from tensorforce import Agent, util
+from tensorforce.agents import PPOAgent, TensorforceAgent
 
 from agents.specifications import Specifications as Specs
-from agents.environment import SynchronousCARLAEnvironment, CARLAEvent
+from agents.environment import SynchronousCARLAEnvironment, CARLAEvent, MyCARLAEnvironment
 
 from navigation import LocalPlanner
 from navigation.behavior_agent import BehaviorAgent
@@ -29,6 +34,16 @@ class Agents:
     def behaviour_pretraining(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int,
                               ignore_traffic_light=False, traces_dir='data/traces', **kwargs):
         return PretrainingBehaviourAgent(carla_env, max_episode_timesteps, traces_dir, ignore_traffic_light, **kwargs)
+
+    @staticmethod
+    def validity_pretraining(carla_env: MyCARLAEnvironment, ignore_traffic_light=True, traces_dir='data/traces',
+                             **kwargs):
+        return ValidityPretrainAgent(carla_env, traces_dir, ignore_traffic_light, **kwargs)
+
+    @staticmethod
+    def validity_pretraining_no_skill(carla_env: MyCARLAEnvironment, ignore_traffic_light=True,
+                                      traces_dir='data/traces', **kwargs):
+        return ValidityPretrainAgentNoSkill(carla_env, traces_dir, ignore_traffic_light, **kwargs)
 
     @staticmethod
     def keyboard(carla_env: SynchronousCARLAEnvironment, fps=30.0, mode='play'):
@@ -310,8 +325,13 @@ class Agents:
 
     @staticmethod
     def ppo7(carla_env: SynchronousCARLAEnvironment, batch_size: int, optimization_steps=10, discount=0.99, name='ppo7',
-             lr=1e-5, entropy=0.1, critic_lr=3e-5, subsampling_fraction=0.25, decay_steps=2000, **kwargs) -> PPOAgent:
-        """PP0-6"""
+             lr=1e-5, entropy=0.1, critic_lr=3e-5, subsampling_fraction=0.25, decay_steps=2000, decay_lr=False,
+             **kwargs) -> PPOAgent:
+        """PP0-7"""
+        if decay_lr:
+            critic_lr = Specs.linear_decay(initial_value=critic_lr, final_value=critic_lr / 100, steps=decay_steps)
+            lr = Specs.linear_decay(initial_value=lr, final_value=lr / 100, steps=decay_steps)
+
         critic_optimizer = dict(type='adam', learning_rate=critic_lr)
         critic_optimizer = dict(type='subsampling_step', optimizer=critic_optimizer, fraction=subsampling_fraction)
         critic_optimizer = dict(type='multi_step', optimizer=critic_optimizer, num_steps=optimization_steps)
@@ -334,6 +354,167 @@ class Agents:
                                                                       steps=decay_steps),
                             variable_noise=0.0,
                             **kwargs)
+
+    @staticmethod
+    def ppo8(carla_env: MyCARLAEnvironment, batch_size: int, optimization_steps=10, discount=0.99, name='ppo8',
+             lr=1e-5, entropy=0.1, critic_lr=3e-5, subsampling_fraction=0.25, decay: dict = None, clipping=0.2,
+             noise=0.0, optimizer='adam', **kwargs) -> PPOAgent:
+        """PP0-8"""
+        decay = decay if isinstance(decay, dict) else dict()
+        decay_lr = decay.get('lr')
+        decay_clipping = decay.get('clipping')
+        decay_entropy = decay.get('entropy')
+        decay_noise = decay.get('noise')
+
+        # Learning rate decay
+        if isinstance(decay_lr, dict):
+            if decay_lr.pop('type', None) == 'exp':
+                lr = Specs.exp_decay(initial_value=lr, unit='updates', **decay_lr)
+
+                critic_lr = Specs.exp_decay(initial_value=critic_lr, steps=decay_lr['steps'], unit='updates',
+                                            **decay_lr)
+            else:
+                lr = Specs.linear_decay(initial_value=lr, final_value=lr / 100, unit='updates', **decay_lr)
+
+                critic_lr = Specs.linear_decay(initial_value=critic_lr, final_value=critic_lr / 100, unit='updates',
+                                               **decay_lr)
+
+        critic_optimizer = dict(type=optimizer, learning_rate=critic_lr)
+        critic_optimizer = dict(type='subsampling_step', optimizer=critic_optimizer, fraction=subsampling_fraction)
+        critic_optimizer = dict(type='multi_step', optimizer=critic_optimizer, num_steps=optimization_steps)
+
+        # Likelihood ratio clipping decay:
+        if isinstance(decay_clipping, dict):
+            if decay_clipping.pop('type', None) == 'exp':
+                clipping = Specs.exp_decay(initial_value=clipping, unit='updates', **decay_clipping)
+            else:
+                clipping = Specs.linear_decay(initial_value=clipping, final_value=0.0,
+                                              unit=decay_clipping.get('unit', 'updates'), **decay_clipping)
+
+        # Entropy decay:
+        if isinstance(decay_entropy, dict):
+            if decay_entropy.pop('type', None) == 'exp':
+                entropy = Specs.exp_decay(initial_value=entropy, unit='updates', **decay_entropy)
+            else:
+                entropy = Specs.linear_decay(initial_value=entropy, unit='updates', **decay_entropy)
+
+        # Gaussian noise decay:
+        if isinstance(decay_noise, dict):
+            if decay_noise.pop('type', None) == 'exp':
+                noise = Specs.exp_decay(initial_value=noise, unit='updates', **decay_noise)
+            else:
+                noise = Specs.linear_decay(initial_value=noise, final_value=0.0, unit='updates', **decay_noise)
+
+        return Agent.create(agent='ppo', name=name,
+                            environment=carla_env,
+                            discount=discount,
+                            likelihood_ratio_clipping=clipping,
+                            network=carla_env.policy_network(),
+                            learning_rate=lr,
+                            batch_size=batch_size,
+                            subsampling_fraction=subsampling_fraction,
+                            optimization_steps=optimization_steps,
+
+                            critic_network=carla_env.policy_network(),
+                            critic_optimizer=critic_optimizer,
+
+                            entropy_regularization=entropy,
+                            exploration=noise,
+                            variable_noise=0.0,
+                            **kwargs)
+
+    @staticmethod
+    def ppo9(carla_env: MyCARLAEnvironment, horizon: int, batch_size: int, optimization_steps=10, discount=0.99,
+             name='ppo9', lr=1e-5, entropy=0.1, critic_lr=3e-5, subsampling_fraction=0.25, decay: dict = None,
+             clipping=0.2, noise=0.0, huber_loss=0.0, optimizer='adam', **kwargs) -> TensorforceAgent:
+        """PP0-9"""
+        assert batch_size > 0
+        assert horizon < batch_size
+
+        decay = decay if isinstance(decay, dict) else dict()
+        decay_lr = decay.get('lr')
+        decay_clipping = decay.get('clipping')
+        decay_entropy = decay.get('entropy')
+        decay_noise = decay.get('noise')
+
+        # Learning rate decay
+        if isinstance(decay_lr, dict):
+            if decay_lr.pop('type', None) == 'exp':
+                lr = Specs.exp_decay(initial_value=lr, unit='updates', **decay_lr)
+
+                critic_lr = Specs.exp_decay(initial_value=critic_lr, steps=decay_lr['steps'], unit='updates',
+                                            **decay_lr)
+            else:
+                lr = Specs.linear_decay(initial_value=lr, final_value=lr / 100, unit='updates', **decay_lr)
+
+                critic_lr = Specs.linear_decay(initial_value=critic_lr, final_value=critic_lr / 100, unit='updates',
+                                               **decay_lr)
+
+        policy_optimizer = dict(type=optimizer, learning_rate=lr)
+        policy_optimizer = dict(type='subsampling_step', optimizer=policy_optimizer, fraction=subsampling_fraction)
+        policy_optimizer = dict(type='multi_step', optimizer=policy_optimizer, num_steps=optimization_steps)
+
+        critic_optimizer = dict(type=optimizer, learning_rate=critic_lr)
+        critic_optimizer = dict(type='subsampling_step', optimizer=critic_optimizer, fraction=subsampling_fraction)
+        critic_optimizer = dict(type='multi_step', optimizer=critic_optimizer, num_steps=optimization_steps)
+
+        # Likelihood ratio clipping decay:
+        if isinstance(decay_clipping, dict):
+            if decay_clipping.pop('type', None) == 'exp':
+                clipping = Specs.exp_decay(initial_value=clipping, unit='updates', **decay_clipping)
+            else:
+                clipping = Specs.linear_decay(initial_value=clipping, final_value=0.0,
+                                              unit=decay_clipping.get('unit', 'updates'), **decay_clipping)
+
+        # Entropy decay:
+        if isinstance(decay_entropy, dict):
+            if decay_entropy.pop('type', None) == 'exp':
+                entropy = Specs.exp_decay(initial_value=entropy, unit='updates', **decay_entropy)
+            else:
+                entropy = Specs.linear_decay(initial_value=entropy, unit='updates', **decay_entropy)
+
+        # Gaussian noise decay:
+        if isinstance(decay_noise, dict):
+            if decay_noise.pop('type', None) == 'exp':
+                noise = Specs.exp_decay(initial_value=noise, unit='updates', **decay_noise)
+            else:
+                noise = Specs.linear_decay(initial_value=noise, final_value=0.0, unit='updates', **decay_noise)
+
+        Agent.create(agent='tensorforce',
+                     name=name,
+                     environment=carla_env,
+                     update=dict(unit='timesteps', batch_size=batch_size),
+
+                     # Policy
+                     policy=dict(network=carla_env.policy_network(),
+                                 # distributions='gaussian',
+                                 use_beta_distribution=True,
+                                 temperature=0.99,
+                                 infer_states_value=False),
+                     memory=dict(type='recent'),
+                     optimizer=policy_optimizer,
+                     objective=Specs.obj.policy_gradient(clipping_value=clipping, ratio_based=True),
+
+                     # Critic
+                     baseline_policy=dict(network=carla_env.policy_network(),
+                                          distributions=dict(float='gaussian'),
+                                          temperature=0.0,
+                                          use_beta_distribution=False,
+                                          infer_state_value='action-values'),
+                     baseline_optimizer=critic_optimizer,
+                     baseline_objective=Specs.obj.value(value='action', huber_loss=huber_loss),
+
+                     # Reward
+                     reward_estimation=dict(discount=discount,
+                                            horizon=horizon,
+                                            estimate_horizon='early',
+                                            estimate_terminal=True,
+                                            estimate_advantage=True),
+                     # Exploration
+                     entropy_regularization=entropy,
+                     exploration=noise,
+                     variable_noise=0.0,
+                     **kwargs)
 
     @staticmethod
     def ppo_like(carla_env: SynchronousCARLAEnvironment, max_episode_timesteps: int, policy: dict, name='ppo_like',
@@ -477,7 +658,8 @@ class PretrainingBehaviourAgent(DummyAgent):
                  ignore_traffic_light=False, behavior='cautious', **kwargs):
         self.agent = Agent.create(agent='constant', name='pretraining-behaviour',
                                   environment=env,
-                                  max_episode_timesteps=max_episode_timesteps, action_values=env.DEFAULT_ACTIONS,
+                                  max_episode_timesteps=max_episode_timesteps,
+                                  action_values=env.DEFAULT_ACTIONS,
                                   recorder=dict(directory=traces_dir) if isinstance(traces_dir, str) else None,
                                   **kwargs)
         self.env = env
@@ -538,6 +720,198 @@ class PretrainingBehaviourAgent(DummyAgent):
             :return: carla.VehicleControl
         """
         return self.bh_agent.run_step(debug=False)
+
+
+class ValidityPretrainAgent:
+    def __init__(self, env: MyCARLAEnvironment, traces_dir=None, ignore_traffic_light=False, behavior='cautious',
+                 reward_threshold=15.0, **kwargs):
+        self.env = env
+        self.max_timesteps = env.max_episode_timesteps()
+        self.index = 0
+        self.traces_dir = traces_dir
+        self.episodes = 0
+        self.reward_threshold = reward_threshold
+
+        self.states_spec = util.valid_values_spec(
+            values_spec=self.env.states(), value_type='state', return_normalized=True)
+
+        self.actions_spec = util.valid_values_spec(
+            values_spec=self.env.actions(), value_type='action', return_normalized=True)
+
+        # buffers:
+        self.terminal_buffers = None
+        self.reward_buffers = None
+        self.states_buffers = None
+        self.actions_buffers = None
+
+        self.record_states = None
+        self.record_actions = None
+        self.record_terminal = None
+        self.record_reward = None
+
+        # Behaviour planner:
+        self.agent = None
+        self.args = dict(ignore_traffic_light=ignore_traffic_light, behavior=behavior,
+                         min_route_size=self.max_timesteps)
+
+        # register to environment's events:
+        self.env.register_event(event=CARLAEvent.RESET, callback=self.reset)
+
+    def init_buffers(self):
+        self.terminal_buffers = np.ndarray(shape=(1, self.max_timesteps), dtype=util.np_dtype(dtype='long'))
+        self.reward_buffers = np.ndarray(shape=(1, self.max_timesteps), dtype=util.np_dtype(dtype='float'))
+        self.states_buffers = OrderedDict()
+        self.actions_buffers = OrderedDict()
+
+        for name, spec in self.states_spec.items():
+            shape = (1, self.max_timesteps) + spec['shape']
+            self.states_buffers[name] = np.ndarray(shape=shape, dtype=util.np_dtype(dtype=spec['type']))
+
+        for name, spec in self.actions_spec.items():
+            shape = (1, self.max_timesteps) + spec['shape']
+            self.actions_buffers[name] = np.ndarray(shape=shape, dtype=util.np_dtype(dtype=spec['type']))
+
+    def init_records(self):
+        self.record_states = OrderedDict(((name, list()) for name in self.states_spec))
+        self.record_actions = OrderedDict(((name, list()) for name in self.actions_spec))
+        self.record_terminal = list()
+        self.record_reward = list()
+
+    def reset(self):
+        print('agent.reset')
+        self.init_buffers()
+        self.init_records()
+        self.index = 0
+
+        self.agent = BehaviorAgent(vehicle=self.env.vehicle, **self.args)
+        self.agent.set_destination(start_location=self.env.vehicle.get_location(), end_location=self.env.destination,
+                                   clean=True)
+
+    def act(self, states):
+        assert isinstance(states, dict)
+        self.agent.update_information()
+
+        control = self._run_step()
+        actions, skill_name = self.env.control_to_actions(control)
+
+        # record states and actions:
+        for name in self.states_spec.keys():
+            self.states_buffers[name][0, self.index] = states[name]
+
+        for name in self.actions_spec.keys():
+            self.actions_buffers[name][0, self.index] = actions[name]
+
+        # self.index = (self.index + 1) % self.max_timesteps
+        return actions
+
+    def write_trace(self):
+        index = self.max_timesteps
+
+        if sum(self.record_reward) < self.reward_threshold * len(self.record_reward):
+            filename = 'trace-{}-{}.npz'.format(self.episodes, time.strftime('%Y%m%d-%H%M%S'))
+            print(f'{filename} not saved because reward {round(sum(self.record_reward), 2)} < {self.reward_threshold * len(self.record_reward)}')
+            return
+
+        # init records
+        for name in self.states_spec:
+            self.record_states[name].append(np.array(self.states_buffers[name][0, :index]))
+
+        for name, spec in self.actions_spec.items():
+            self.record_actions[name].append(np.array(self.actions_buffers[name][0, :index]))
+
+        self.record_terminal.append(np.array(self.terminal_buffers[0, :index]))
+        self.record_reward.append(np.array(self.reward_buffers[0, :index]))
+
+        # init directory
+        if os.path.isdir(self.traces_dir):
+            files = sorted(
+                f for f in os.listdir(self.traces_dir)
+                if os.path.isfile(os.path.join(self.traces_dir, f))
+                and f.startswith('trace-'))
+        else:
+            os.makedirs(self.traces_dir)
+            files = list()
+
+        filename = 'trace-{}-{}.npz'.format(self.episodes, time.strftime('%Y%m%d-%H%M%S'))
+        filename = os.path.join(self.traces_dir, filename)
+
+        self.record_states = util.fmap(
+            function=np.concatenate, xs=self.record_states, depth=1)
+
+        self.record_actions = util.fmap(
+            function=np.concatenate, xs=self.record_actions, depth=1)
+
+        self.record_terminal = np.concatenate(self.record_terminal)
+        self.record_reward = np.concatenate(self.record_reward)
+
+        np.savez_compressed(
+            filename, **self.record_states, **self.record_actions,
+            terminal=self.record_terminal, reward=self.record_reward)
+
+    def observe(self, reward, terminal=False):
+        # hack: record rewards and terminals
+        self.reward_buffers[0, self.index] = reward
+        self.terminal_buffers[0, self.index] = terminal
+        self.index += 1
+
+        if terminal:
+            self.episodes += 1
+            self._compute_action_validity()
+            self.write_trace()
+
+    def _compute_action_validity(self):
+        # set right value for validity; adjust rewards accordingly:
+        control_buffer = self.actions_buffers['control']
+
+        for i in range(len(control_buffer)):
+            validity = 1
+            rewards = []
+
+            for j in range(i, len(control_buffer) - 1):
+                if control_buffer[0, j] == control_buffer[0, j + 1]:
+                    validity += 1
+                    rewards.append(self.reward_buffers[0, j])
+                else:
+                    self.reward_buffers[0, i:j] = self.env.aggregate_reward(rewards, r_max=150.0, r_min=-2000)
+                    break
+
+            self.actions_buffers['validity'][0, i] = validity
+
+    def _run_step(self) -> carla.VehicleControl:
+        """Execute one step of navigation. WARNING: does not check for obstacles and traffic lights!
+            :return: carla.VehicleControl
+        """
+        return self.agent.run_step(debug=False)
+
+
+class ValidityPretrainAgentNoSkill(ValidityPretrainAgent):
+
+    def act(self, states):
+        assert isinstance(states, dict)
+        self.agent.update_information()
+
+        control = self._run_step()
+        actions = self.env.control_to_actions(control)
+
+        # record states and actions:
+        for name in self.states_spec.keys():
+            self.states_buffers[name][0, self.index] = states[name]
+
+        for name in self.actions_spec.keys():
+            self.actions_buffers[name][0, self.index] = actions[name]
+
+        return actions
+
+    def observe(self, reward, terminal=False):
+        # hack: record rewards and terminals
+        self.reward_buffers[0, self.index] = reward
+        self.terminal_buffers[0, self.index] = terminal
+        self.index += 1
+
+        if terminal:
+            self.episodes += 1
+            # self._compute_action_validity()
+            self.write_trace()
 
 
 class KeyboardAgent(DummyAgent):

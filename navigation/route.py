@@ -1,5 +1,6 @@
 import math
 import carla
+import random
 
 from navigation import RoutePlanner
 from tools import utils
@@ -88,6 +89,9 @@ class Route(object):
 
     def get_next_waypoint_location(self):
         return self.next.waypoint.transform.location
+
+    def random_waypoint(self):
+        return random.choice(self.path)[0]
 
     def _compute_route_size(self):
         """Compute the size (in meters) of the entire planned route"""
