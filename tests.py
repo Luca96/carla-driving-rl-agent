@@ -254,10 +254,72 @@ def curriculum_learning2(batch_size: int, random_seed: int, weights_dir: str, im
     print('origin', spawn_point)
     print('destination', destination)
 
-    # optimizer: adadelta, adamax, adam
     cl = CurriculumLearning(agent_spec=dict(callable=Agents.ppo8, batch_size=batch_size, summarizer=Specs.summarizer(),
+                                            optimization_steps=10, entropy=1.0, critic_lr=3e-5, lr=1e-5, clipping=0.25,
+                                            optimizer='adamax', noise=0.2,
+                                            decay=dict(clipping=dict(steps=10_000, type='linear'),
+                                                       noise=dict(steps=500, type='linear'),
+                                                       entropy=dict(steps=5_000, final_value=1e-4, type='linear'),
+                                                       lr=dict(steps=10_000, type='linear')),
+                                            subsampling_fraction=0.2,
+                                            # recorder={'directory': 'data/traces/ppo8', 'max-traces': 128}
+                                            # saver=Specs.saver(directory=weights_dir, frequency=1, filename='agent',
+                                            #                   load=True)
+                                            ),
+
+                            env_spec=dict(callable=MyCARLAEnvironmentNoSkill, max_timesteps=timesteps,
+                                          image_shape=image_shape, window_size=(670, 500), time_horizon=time_horizon),
+
+                            curriculum=[
+                                # stage 1: fixed car, origin, destination. Reverse gear is disabled.
+                                dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
+                                                      disable_reverse=True, max_validity=10.0, validity_cap=10.0,
+                                                      path=dict(origin=spawn_point, destination=destination)),
+
+                                     pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=1),  # 128
+                                     learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
+                                     repeat=8),
+
+                                # stage 2: add reverse?
+                                dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
+                                                      disable_reverse=False, max_validity=10.0, validity_cap=10.0,
+                                                      path=dict(origin=spawn_point, destination=destination)),
+
+                                     # pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=0),
+                                     learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
+                                     repeat=8)
+
+                                # stage 3: generalize on different vehicles?
+                                # stage 4: save origin, different destination.
+                                # stage 5: random (origin, destination)
+                                # stage 6: add vehicles
+                                # stage 7: add pedestrians
+                                # stage 8: generalize on multiple maps
+                                # stage 9: generalize on multiple weathers?
+                            ],
+                            save=dict(directory=weights_dir, filename='ppo8', frequency=32)
+                            )
+
+    # optimizer: adadelta, adamax, adam
+    cl.start()
+
+
+def curriculum_learning_ppo9(batch_size: int, horizon: int, random_seed: int, weights_dir: str, discount=1,
+                             image_shape=(75, 105, 3), time_horizon=5, timesteps=1792, memory=None):
+    if random_seed is not None:
+        tf.compat.v1.random.set_random_seed(random_seed)
+
+    random.seed(42)
+    print(f'random seed = 42, tf.random_seed = {random_seed}')
+
+    world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
+    spawn_point, destination = _get_origin_destination(world_map)
+    print('origin', spawn_point)
+    print('destination', destination)
+
+    cl = CurriculumLearning(agent_spec=dict(callable=Agents.ppo9, batch_size=batch_size, summarizer=Specs.summarizer(),
                                             optimization_steps=10, entropy=0.0, critic_lr=3e-5, lr=1e-5, clipping=0.25,
-                                            optimizer='adam', noise=0.2,
+                                            optimizer='adam', noise=0.2, capacity=memory, discount=discount,
                                             decay=dict(clipping=dict(steps=10_000, type='linear'),
                                                        noise=dict(steps=200, type='linear'),
                                                        lr=dict(steps=10_000, type='linear')),
@@ -269,15 +331,34 @@ def curriculum_learning2(batch_size: int, random_seed: int, weights_dir: str, im
                                           image_shape=image_shape, window_size=(670, 500), time_horizon=time_horizon),
 
                             curriculum=[
+                                # stage 1: fixed car, origin, destination. Reverse gear is disabled.
                                 dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
                                                       disable_reverse=True, max_validity=10.0, validity_cap=10.0,
                                                       path=dict(origin=spawn_point, destination=destination)),
 
                                      pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=0),
                                      learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
+                                     repeat=8),
+
+                                # stage 2: add reverse?
+                                dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
+                                                      disable_reverse=False, max_validity=10.0, validity_cap=10.0,
+                                                      path=dict(origin=spawn_point, destination=destination)),
+
+                                     # pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=0),
+                                     learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
                                      repeat=8)
+
+                                # stage 3: generalize on different vehicles?
+                                # stage 4: save origin, different destination.
+                                # stage 5: random (origin, destination)
+                                # stage 6: add vehicles
+                                # stage 7: add pedestrians
+                                # stage 8: generalize on multiple maps
+                                # stage 9: generalize on multiple weathers?
                             ],
                             save=dict(directory=weights_dir, filename='ppo8', frequency=32))
+    # optimizer: adadelta, adamax, adam
     cl.start()
 
 

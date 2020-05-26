@@ -248,6 +248,19 @@ class NetworkSpec:
                             recurrent_activation=recurrent_activation, recurrent_dropout=recurrent_dropout,
                             return_sequences=return_sequences, return_state=return_state, stateful=stateful))
 
+    def conv_lstm2d(self, filters, kernel, strides=(1, 1), padding='valid', dilation_rate=(1, 1),
+                    activation='tanh', recurrent_activation='hard_sigmoid', unit_forget_bias=True,
+                    return_sequences=False, go_backwards=False, stateful=False, dropout=0.0, recurrent_dropout=0.0):
+        """
+            - docs: https://www.tensorflow.org/api_docs/python/tf/keras/layers/ConvLSTM2D
+            - input: 5D-tensor
+        """
+        self.add_layer(dict(type='keras', layer='ConvLSTM2D', filters=filters, kernel_size=kernel, strides=strides,
+                            padding=padding, dilation_rate=dilation_rate, activation=activation,
+                            recurrent_activation=recurrent_activation, unit_forget_bias=unit_forget_bias,
+                            return_sequences=return_sequences, go_backwards=go_backwards, stateful=stateful,
+                            dropout=dropout, recurrent_dropout=recurrent_dropout))
+
     def relu6(self):
         self.function(tf_function=tf.nn.relu6)
 
@@ -753,15 +766,16 @@ class Specifications:
             units=final.get('units', 256))
 
     @staticmethod
-    def saver(directory: str, filename: str, frequency=600, load=True) -> dict:
-        return dict(directory=directory, filename=filename, frequency=frequency, load=load)
+    def saver(directory: str, filename: str, frequency=600, load=True, max_checkpoints=3) -> dict:
+        return dict(directory=directory, filename=filename, frequency=frequency, load=load,
+                    **{'max-checkpoints': max_checkpoints})
 
     @staticmethod
     def summarizer(directory='data/summaries', labels=None, frequency=100) -> dict:
         # ['graph', 'entropy', 'kl-divergence', 'losses', 'rewards'],
         return dict(directory=directory,
                     labels=labels or ['entropy', 'action-entropies', 'gaussian', 'exploration', 'beta',
-                                      'kl-divergences', 'losses', 'rewards'],
+                                      'kl-divergences', 'losses', 'rewards', 'parameters'],
                     frequency=frequency)
 
     @staticmethod

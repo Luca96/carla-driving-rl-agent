@@ -246,7 +246,7 @@ def save_agent(agent: Agent, agent_name: str, directory: str, separate_dir=True)
     return checkpoint_path
 
 
-def load_agent(directory: str, filename: str, environment, from_function=None, format=None, **kwargs) -> Agent:
+def load_agent(directory: str, filename: str, environment, from_function=None, format='tensorflow', **kwargs) -> Agent:
     """Loads a previously saved agent if available, otherwise creates it"""
     try:
         agent = Agent.load(directory=directory, filename=filename, format=format, environment=environment)

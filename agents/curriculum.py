@@ -89,7 +89,7 @@ class FixedOriginStage(Stage):
 
 class CurriculumLearning(object):
 
-    def __init__(self, agent_spec: dict, env_spec: dict, curriculum: List[dict], save: dict = None):
+    def __init__(self, agent_spec: dict, env_spec: dict, curriculum: List[dict], save: dict = None, start_from_stage=0):
         """
         :param save: dict(directory, frequency, filename, append)
         :param agent_spec: dict(callable=,, **kwargs)
@@ -99,6 +99,7 @@ class CurriculumLearning(object):
         assert isinstance(agent_spec, dict)
         assert isinstance(env_spec, dict)
         assert isinstance(curriculum, list) and len(curriculum) > 0
+        assert isinstance(start_from_stage, int) and start_from_stage >= 0
 
         self.agent_class = agent_spec.pop('callable')
         self.agent_args = agent_spec
@@ -106,6 +107,7 @@ class CurriculumLearning(object):
         self.env_args = env_spec
         self.save = save
         self.curriculum = curriculum
+        self.start_index = start_from_stage
 
         # TODO: check curriculum specs before start()!
 
@@ -144,14 +146,22 @@ class CurriculumLearning(object):
         return success, rate, avg_reward
 
     def start(self):
-        for i, stage in enumerate(self.curriculum):
+        print('=== Curriculum Learning ===')
+        agent = None
+
+        for i in range(self.start_index, len(self.curriculum)):
             print(f"Stage-{i}")
-            agent, environment = self.initialize(**stage.get('environment', dict()))
-            pretrain_spec = stage.get('pretrain', None)
+            stage = self.curriculum[i]
+            environment = self.init_env(**stage.get('environment', dict()))
+
+            if agent is None:
+                agent = self.init_agent(environment)
+
+            # agent, environment = self.initialize(**stage.get('environment', dict()))
 
             for j in range(stage.get('repeat', 1)):
                 print(f"\tTrial-{j}")
-                self.pretrain(agent, spec=pretrain_spec)
+                self.pretrain(agent, spec=stage.get('pretrain', None))
 
                 environment.learn3(agent, num_episodes=stage['learn_episodes'], save=self.save)
                 episodic_rewards = environment.evaluate(agent, num_episodes=stage['eval_episodes'])
@@ -159,10 +169,24 @@ class CurriculumLearning(object):
                 success, success_rate, average_reward = self.is_successful(stage, episodic_rewards)
 
                 if success:
-                    print(f"\t\tSuccess! Average reward {round(average_reward, 2)}")
+                    print(f"[{i}/{j}]\t\tSuccess! Average reward {round(average_reward, 2)}")
+
+                    agent.save(directory=self.save['directory'], filename=self.save['filename'], format='tensorflow',
+                               append=self.save.get('append', None))
+                    print('agent saved.')
                     break
                 else:
-                    print(f"\t\tFailure!, Avg. Reward {round(average_reward, 2)}, rate {round(success_rate, 2)}")
+                    print(f"[{i}/{j}]\t\tFailure!, Avg. Reward {round(average_reward, 2)}, rate {round(success_rate, 2)}")
+
+            agent.reset()
+            environment.close()
+
+    def init_env(self, **kwargs):
+        return self.env_class(**self.env_args, **kwargs)
+
+    def init_agent(self, environment):
+        return env_utils.load_agent(directory=self.save['directory'], filename=self.save['filename'],
+                                    environment=environment, from_function=self.agent_class, **self.agent_args)
 
     def initialize(self, **kwargs):
         # TODO: could be useful to overwrite base env arguments

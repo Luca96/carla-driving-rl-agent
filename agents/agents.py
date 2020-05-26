@@ -426,10 +426,13 @@ class Agents:
     @staticmethod
     def ppo9(carla_env: MyCARLAEnvironment, horizon: int, batch_size: int, optimization_steps=10, discount=0.99,
              name='ppo9', lr=1e-5, entropy=0.1, critic_lr=3e-5, subsampling_fraction=0.25, decay: dict = None,
-             clipping=0.2, noise=0.0, huber_loss=0.0, optimizer='adam', **kwargs) -> TensorforceAgent:
+             clipping=0.2, noise=0.0, huber_loss=0.0, optimizer='adam', capacity=None, **kwargs) -> TensorforceAgent:
         """PP0-9"""
         assert batch_size > 0
         assert horizon < batch_size
+
+        if isinstance(capacity, int):
+            assert capacity > batch_size
 
         decay = decay if isinstance(decay, dict) else dict()
         decay_lr = decay.get('lr')
@@ -491,7 +494,7 @@ class Agents:
                                  use_beta_distribution=True,
                                  temperature=0.99,
                                  infer_states_value=False),
-                     memory=dict(type='recent'),
+                     memory=dict(type='recent', capacity=capacity),
                      optimizer=policy_optimizer,
                      objective=Specs.obj.policy_gradient(clipping_value=clipping, ratio_based=True),
 

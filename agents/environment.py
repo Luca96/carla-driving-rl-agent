@@ -1748,7 +1748,7 @@ class MyCARLAEnvironmentNoSkill(MyCARLAEnvironment):
         """Learning"""
         should_save = isinstance(save, dict)
 
-        for episode in range(num_episodes):
+        for episode in range(1, num_episodes + 1):
             states = self.reset()
             total_reward = 0.0
 
@@ -1796,7 +1796,7 @@ class MyCARLAEnvironmentNoSkill(MyCARLAEnvironment):
         episodic_rewards = []
         internals = agent.initial_internals()
 
-        for episode in range(num_episodes):
+        for episode in range(1, num_episodes + 1):
             states = self.reset()
             episode_reward = 0.0
 
@@ -1829,7 +1829,7 @@ class MyCARLAEnvironmentNoSkill(MyCARLAEnvironment):
                     if terminal:
                         elapsed = str(datetime.now() - t0).split('.')[0]
                         episodic_rewards.append(episode_reward)
-                        print(f'Episode-{episode} completed in {elapsed}, total_reward: {round(episode_reward, 2)}\n')
+                        print(f'[Eval] Episode-{episode} completed in {elapsed}, total_reward: {round(episode_reward, 2)}\n')
                         break
 
         return episodic_rewards

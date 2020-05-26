@@ -100,4 +100,8 @@ if __name__ == '__main__':
     tests.curriculum_learning2(batch_size=1, random_seed=71, time_horizon=5, timesteps=400,
                                weights_dir='weights/curriculum3')
 
+    # curriculum-ppo9:
+    # 1792 * 1/30 ~= 60 sec
+    # tests.collect_traces2_stage1(num_traces=1, timesteps=1792, traces_dir='data/traces/stage1-ppo9', time_horizon=5)
+
     pygame.quit()
