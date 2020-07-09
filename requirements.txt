@@ -1,11 +1,8 @@
-h5py==2.10.0
-networkx==2.4
-numpy==1.18.2
-opencv-python==4.2.0.32
-pygame==1.9.6
-scipy==1.4.1
-tensorboard==2.1.0
-tensorflow==2.1.0
-tensorflow-estimator==2.1.0
--e git+https://github.com/Luca96/tensorforce.git@cb714ba3fafc9b9bf6fee9f1f371a54cc35a7343#egg=Tensorforce
-PyContracts
+numpy
+tensorflow
+tensorflow-probability
+gym
+pygame
+opencv-python
+networkx
+matplotlib
