@@ -6,6 +6,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
 
+# TODO: remove recurrences, make "auto-regressive"
 def feature_net(input_layer: Input, noise=0.05, num_layers=2, units=32, activation='swish', dropout=0.5,
                 name='feature_out') -> Layer:
     """Network for vector features"""

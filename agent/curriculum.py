@@ -55,6 +55,8 @@ class Stage(object):
         if self.should_imitate:
             self.imitate()
 
+        input('press enter to continue...')
+
         self.learn()
         self.cleanup()
 

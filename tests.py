@@ -4,7 +4,11 @@ import os
 import random
 import tensorflow as tf
 
+from rl.environments.carla import env_utils
+from rl.parameters import LinearParameter
 from rl.environments.carla.environment import ThreeCameraCARLAEnvironment, CARLACollectWrapper
+
+from tensorflow.keras.optimizers import schedules
 
 from agent.agent import CARLAgent, CARLAImitationLearning
 from agent.curriculum import Stage
@@ -96,23 +100,75 @@ def _get_origin_destination(world_map):
 
 # -------------------------------------------------------------------------------------------------
 
-def curriculum_learning():
+def curriculum_learning_stage1():
+    """Stage 1: same car, fixed origin and destination. Reverse gear is disabled. ClearNoon weather, Town01 map."""
+    random.seed(31)
+    world_map = env_utils.get_client(address='localhost', port=2000, timeout=5.0).get_world().get_map()
+
+    spawn_point, destination = _get_origin_destination(world_map)
+
     # Agent
-    agent_dict = dict(class_=CARLAgent, policy_lr=1e-3, value_lr=3e-4, optimization_steps=(1, 2), clip_ratio=0.2,
-                      gamma=0.99, lambda_=0.95, target_kl=None, entropy_regularization=0.001, drop_batch_reminder=True,
-                      skip_data=1, consider_obs_every=4)
+    agent_dict = dict(class_=CARLAgent,
+                      args=dict(policy_lr=schedules.ExponentialDecay(1e-3, decay_steps=5_000, decay_rate=0.9,
+                                                                     staircase=True),
+                                value_lr=schedules.ExponentialDecay(3e-4, decay_steps=5_000, decay_rate=0.9,
+                                                                    staircase=True),
+                                noise=LinearParameter(initial=1.0, final=0.001, rate=0.1, steps=1000, restart=True,
+                                                      decay_on_restart=0.9),
+                                batch_size=50, aug_intensity=0.5, seed=42,
+                                optimization_steps=(1, 1), clip_ratio=0.2, gamma=0.99, lambda_=0.95, target_kl=None,
+                                entropy_regularization=0.01, recurrent_policy=True, skip_data=1,
+                                consider_obs_every=4, load=False, weights_dir='weights', name='stage-1'),
+                      learn=dict(episodes=50, render_every=False, timesteps=500, save_every=10))
 
     # Environment
-    env_dict = dict(class_=ThreeCameraCARLAEnvironment, image_shape=None, path=None, render=True, debug=True,
-                    vehicle_filter='vehicle.tesla.model3')
+    env_dict = dict(class_=ThreeCameraCARLAEnvironment,
+                    args=dict(image_shape=(105, 140, 1), window_size=(720, 210), render=True, debug=True,
+                              path=dict(origin=spawn_point, destination=destination),
+                              vehicle_filter='vehicle.tesla.model3', disable_reverse=True))
 
     # Imitation learning
-    imitation_dict = dict(class_=CARLAImitationLearning, policy_lr=3e-4, value_lr=3e-4, name='carla-imitation',
-                          drop_batch_reminder=True, skip_data=1, consider_obs_every=4)
+    imitation_dict = dict(class_=CARLAImitationLearning,
+                          args=dict(policy_lr=schedules.ExponentialDecay(1e-3, decay_steps=2_000, decay_rate=0.9,
+                                                                         staircase=True),
+                                    value_lr=schedules.ExponentialDecay(1e-3, decay_steps=2_000, decay_rate=0.9,
+                                                                        staircase=True),
+                                    name='stage-1', aug_intensity=0.75,
+                                    drop_batch_reminder=True, skip_data=1, consider_obs_every=4),
+                          learn=dict(repetitions=30 * 0, shuffle_traces=True, discount=0.99, save_every=10))
 
     # Stage 1: same car, fixed origin and destination. Reverse gear is disabled.
     Stage(agent_dict, env_dict, imitation_dict).run()
 
 
-def collect_experience():
+def collect_experience_stage1():
+    """Stage 1: same car, fixed origin and destination. Reverse gear is disabled. ClearNoon weather, Town01 map."""
+    random.seed(31)
+    world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
+
+    spawn_point, destination = _get_origin_destination(world_map)
+
+    CARLACollectWrapper(ThreeCameraCARLAEnvironment(debug=False, window_size=(720, 210), render=True,
+                                                    image_shape=(105, 140, 1),
+                                                    path=dict(origin=spawn_point, destination=destination)),
+                        ignore_traffic_light=True, name='stage-1') \
+        .collect(episodes=1, timesteps=500, episode_reward_threshold=15.0 * 480)
+
+
+def collect_experience_stagex():
+    """Stage x: navigation without pedestrians and vehicles."""
+    # random.seed(77)
+    CARLACollectWrapper(ThreeCameraCARLAEnvironment(debug=False, window_size=(720, 210), render=True,
+                                                    image_shape=(105, 140, 1)),
+                        ignore_traffic_light=True, name='stage-x') \
+        .collect(episodes=15, timesteps=500, episode_reward_threshold=15.0 * 480)  # 50
+
+
+if __name__ == '__main__':
+    # Stage 1:
+    # collect_experience_stage1()
+    # curriculum_learning_stage1()
+
+    # Stage x:
+    collect_experience_stagex()
     pass

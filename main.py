@@ -12,5 +12,5 @@ logger.setLevel(logging.ERROR)
 
 
 if __name__ == '__main__':
-    tests.curriculum_learning()
+    # tests.curriculum_learning()
     pygame.quit()
