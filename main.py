@@ -13,4 +13,6 @@ logger.setLevel(logging.ERROR)
 
 if __name__ == '__main__':
     # tests.curriculum_learning()
-    pygame.quit()
+    # benchmark_networks(batch_size=64, summary=True, dilation=())
+    # pygame.quit()
+    pass

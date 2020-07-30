@@ -7,7 +7,7 @@ from rl import augmentations as aug
 from rl.agents import PPOAgent
 from rl.agents.imitation import ImitationWrapper
 
-from agent import networks as nn
+from core import networks as nn
 
 
 class CARLAgent(PPOAgent):

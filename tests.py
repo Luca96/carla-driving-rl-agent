@@ -6,89 +6,44 @@ import tensorflow as tf
 
 from rl.environments.carla import env_utils
 from rl.parameters import LinearParameter
-from rl.environments.carla.environment import ThreeCameraCARLAEnvironment, CARLACollectWrapper
+from rl.environments.carla.environment import ThreeCameraCARLAEnvironment, CARLACollectWrapper, \
+                                              ThreeCameraCARLAEnvironmentDiscrete
 
 from tensorflow.keras.optimizers import schedules
 
-from agent.agent import CARLAgent, CARLAImitationLearning
-from agent.curriculum import Stage
+from core.agent import CARLAgent, CARLAImitationLearning
+from core.curriculum import Stage
+
+
+def benchmark_networks(batch_size: int, summary=False, depth=3, **kwargs):
+    import time
+    from core.networks import shufflenet_v2
+
+    def measure(code, repetitions=10):
+        t = 0.0
+        for _ in range(repetitions):
+            t0 = time.time()
+            code()
+            t += time.time() - t0
+        print(f' - Time passed {round(t / repetitions, 3)}s.')
+
+    shapes = [(105, 420, depth), (90, 360, depth), (75, 300, depth)]
+    models = [shufflenet_v2(shape, 1, **kwargs) for shape in shapes]
+    datasets = [tf.random.normal((batch_size,) + shape) for shape in shapes]
+
+    if summary:
+        for model in models:
+            model.summary()
+            breakpoint()
+
+    for model, shape, data in zip(models, shapes, datasets):
+        print(f'Measuring for batch {(batch_size,) + shape}:')
+        measure(code=lambda: model(data))
 
 
 # -------------------------------------------------------------------------------------------------
 # -- Curriculum Learning
 # -------------------------------------------------------------------------------------------------
-
-# def curriculum_learning_ppo9(batch_size: int, horizon: int, random_seed: int, weights_dir: str, discount=1,
-#                              image_shape=(75, 105, 3), time_horizon=5, timesteps=1792, memory=None):
-#     if random_seed is not None:
-#         tf.compat.v1.random.set_random_seed(random_seed)
-#
-#     random.seed(42)
-#     print(f'random seed = 42, tf.random_seed = {random_seed}')
-#
-#     world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
-#     spawn_point, destination = _get_origin_destination(world_map)
-#     print('origin', spawn_point)
-#     print('destination', destination)
-#
-#     cl = CurriculumLearning(agent_spec=dict(callable=Agents.ppo9, batch_size=batch_size, summarizer=Specs.summarizer(),
-#                                             optimization_steps=10, entropy=0.0, critic_lr=3e-5, lr=1e-5, clipping=0.25,
-#                                             optimizer='adam', noise=0.2, capacity=memory, discount=discount,
-#                                             decay=dict(clipping=dict(steps=10_000, type='linear'),
-#                                                        noise=dict(steps=200, type='linear'),
-#                                                        lr=dict(steps=10_000, type='linear')),
-#                                             subsampling_fraction=0.2,
-#                                             # recorder={'directory': 'data/traces/ppo8', 'max-traces': 128}
-#                                             ),
-#
-#                             env_spec=dict(callable=MyCARLAEnvironmentNoSkill, max_timesteps=timesteps,
-#                                           image_shape=image_shape, window_size=(670, 500), time_horizon=time_horizon),
-#
-#                             curriculum=[
-#                                 # stage 1: fixed car, origin, destination. Reverse gear is disabled.
-#                                 dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
-#                                                       disable_reverse=True, max_validity=10.0, validity_cap=10.0,
-#                                                       path=dict(origin=spawn_point, destination=destination)),
-#
-#                                      pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=0),
-#                                      learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
-#                                      repeat=8),
-#
-#                                 # stage 2: add reverse?
-#                                 dict(environment=dict(vehicle_filter='vehicle.tesla.model3',
-#                                                       disable_reverse=False, max_validity=10.0, validity_cap=10.0,
-#                                                       path=dict(origin=spawn_point, destination=destination)),
-#
-#                                      # pretrain=dict(traces_dir='data/traces/stage1', num_traces=128, times=0),
-#                                      learn_episodes=64, eval_episodes=5, target_reward=10.0, success_rate=0.5,
-#                                      repeat=8)
-#
-#                                 # stage 3: generalize on different vehicles?
-#                                 # stage 4: same origin, different destination.
-#                                 # stage 5: random (origin, destination)
-#                                 # stage 6: add vehicles
-#                                 # stage 7: add pedestrians
-#                                 # stage 8: generalize on multiple maps
-#                                 # stage 9: generalize on multiple weathers?
-#                             ],
-#                             save=dict(directory=weights_dir, filename='ppo8', frequency=32))
-#     # optimizer: adadelta, adamax, adam
-#     cl.start()
-#
-#
-# def collect_traces2_stage1(num_traces: int, traces_dir: str, time_horizon=5, timesteps=400, image_shape=(75, 105, 3)):
-#     random.seed(42)
-#     world_map = env_utils.get_client(address='localhost', port=2000).get_world().get_map()
-#     spawn_point, destination = _get_origin_destination(world_map)
-#
-#     env = CARLACollectTracesNoSkill(max_timesteps=timesteps, vehicle_filter='vehicle.tesla.model3',
-#                                     time_horizon=time_horizon, window_size=(670, 500),
-#                                     path=dict(origin=spawn_point, destination=destination),
-#                                     # path=dict(origin=dict(point=spawn_point, type='route'), destination=destination),
-#                                     image_shape=image_shape)
-#
-#     env.collect(num_traces, traces_dir)
-
 
 def _get_origin_destination(world_map):
     available_points = world_map.get_spawn_points()
@@ -97,8 +52,6 @@ def _get_origin_destination(world_map):
     destination = random.choice(available_points).location
     return spawn_point, destination
 
-
-# -------------------------------------------------------------------------------------------------
 
 def curriculum_learning_stage1():
     """Stage 1: same car, fixed origin and destination. Reverse gear is disabled. ClearNoon weather, Town01 map."""
@@ -164,11 +117,40 @@ def collect_experience_stagex():
         .collect(episodes=15, timesteps=500, episode_reward_threshold=15.0 * 480)  # 50
 
 
+# -------------------------------------------------------------------------------------------------
+
+def collect_experience_stage1_discrete(episodes=1, bins=8, timesteps=500, image_shape=(105, 140, 3)):
+    """Stage 1: same car, one fixed origin and destination. Reverse gear is disabled. ClearNoon weather, Town01 map."""
+    random.seed(123)
+    world_map = env_utils.get_client(address='localhost', timeout=5.0, port=2000).get_world().get_map()
+
+    spawn_point, destination = _get_origin_destination(world_map)
+
+    env = ThreeCameraCARLAEnvironmentDiscrete(bins=bins, debug=False, window_size=(720, 210), render=True,
+                                              image_shape=image_shape, town='Town01',
+                                              path=dict(origin=spawn_point, destination=destination))
+
+    CARLACollectWrapper(env, ignore_traffic_light=True, name='stage-1-d') \
+        .collect(episodes=episodes, timesteps=timesteps, episode_reward_threshold=15.0 * timesteps)
+
+
 if __name__ == '__main__':
+    # Benchmarks:
+    # benchmark_networks(batch_size=64, summary=True)  # 1.80s, 1.45s, 1.20s
+    # benchmark_networks(batch_size=64, depth=1)  # 1.64s, 1.32s, 1.09s
+    # benchmark_networks(batch_size=64, dilation=(2, 2))  # 2.93s, 2.27s, 1.78s
+    # benchmark_networks(batch_size=128, depth=3)  # 2.69s, 2.09s, 2.27s
+    # benchmark_networks(batch_size=128, depth=1)  # 2.70s, 2.09s, 1.67s
+
+    # -------------------------------------------
     # Stage 1:
     # collect_experience_stage1()
     # curriculum_learning_stage1()
 
     # Stage x:
-    collect_experience_stagex()
+    # collect_experience_stagex()
+
+    # -------------------------------------------
+    # Stage 1-d:
+    # collect_experience_stage1_discrete()
     pass
