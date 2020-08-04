@@ -10,55 +10,7 @@ from typing import List, Dict, Union
 from rl import networks
 
 
-# def feature_net(input_layer: Input, noise=0.05, num_layers=2, units=32, activation='swish', dropout=0.5,
-#                 name='feature_out') -> Layer:
-#     """Network for vector features"""
-#     x = GaussianNoise(stddev=noise)(input_layer)
-#     x = tf.expand_dims(x, axis=0)
-#
-#     # recurrence
-#     x, state = GRU(units, stateful=True, return_state=True)(x)
-#     x = subtract([x, state])
-#     x = LayerNormalization()(x)
-#
-#     # dense layers
-#     for _ in range(num_layers):
-#         x = Dense(units, activation=activation)(x)
-#         x = Dropout(rate=dropout)(x)
-#
-#     return add([x, state], name=name)
-
-
-# def convolutional(input_layer: Input, filters=32, filters_multiplier=1.0, blocks=2, units=64, dropout=0.2,
-#                   kernel=(3, 3), strides=(2, 2), activation='swish', padding='same', name='conv_out'):
-#     """Convolutional neural network"""
-#     def block(prev_layer, i):
-#         h = DepthwiseConv2D(kernel_size=kernel, padding=padding, activation=activation)(prev_layer)
-#         h = Conv2D(filters=int(filters * i * filters_multiplier), kernel_size=kernel, padding=padding)(h)
-#         h = ReLU(max_value=6.0, negative_slope=0.2)(h)
-#         h = SpatialDropout2D(rate=dropout)(h)
-#         h = MaxPooling2D(pool_size=3, strides=strides)(h)  # overlapping max-pool
-#         return h
-#
-#     x = input_layer
-#     k = 0
-#     for _ in range(blocks):
-#         x1 = block(x, i=k + 1)
-#         x2 = DepthwiseConv2D(kernel_size=kernel, padding='same', activation='swish')(x1)
-#         k += 2
-#         x = concatenate([x1, x2], axis=-1)  # depth-concat
-#         x = LayerNormalization()(x)
-#
-#     x = GlobalAveragePooling2D()(x)
-#     x = LayerNormalization()(x)
-#     x = tf.expand_dims(x, axis=0)
-#
-#     # 1-timestep RNN
-#     x, state = GRU(units, stateful=True, return_state=True)(x)
-#     return subtract([x, state], name=name)
-
-
-# -----------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 
 def feature_net(input_feature: Input, noise=0.05, num_layers=2, units=32, expansion=1.5, dropout=0.2) -> Layer:
     """Network for vector features"""
@@ -241,61 +193,52 @@ class ContextLayer(Layer):
         super().__init__()
 
         self.context_shape = (1, size)
-        self.context = None
+        self.context: tf.Variable = None
         self.reset()
 
         # z: how much new information to "preserve"
         self.linear = Dense(units=int(size * 1.5), activation='linear', name='context_linear')
-        self.embed = Dense(units=size, activation=tf.nn.sigmoid, use_bias=False, name='context_preserve')
+        self.embed = Dense(units=size, activation=tf.nn.sigmoid, use_bias=False, name='context_preserve',
+                           # kernel_constraint=tf.keras.constraints.MaxNorm()
+                           )
+
+        # r: how much new information to "add"
+        self.rate = Dense(units=1, activation='tanh', use_bias=False, name='context_rate',
+                          # kernel_constraint=tf.keras.constraints.UnitNorm()
+                          )
 
         # f: how much past information to "forget"
-        self.forget = Dense(units=size, activation=tf.nn.sigmoid, use_bias=False, name='context_forget')
-
-    # @tf.function
-    # def compute_context(self, context, x):
-    #     """Function used with tf.foldl, that computes (and thus updates) the context one element at a time"""
-    #     # forget
-    #     f = self.forget(context, axis=0)
-    #     c = tf.multiply(f, context)
-    #
-    #     # new context
-    #     return tf.add(c, x)
+        # self.forget = Dense(units=size, activation=tf.nn.sigmoid, use_bias=False, name='context_forget')
+        self.forget = Dense(units=size, activation='softmax', use_bias=False, name='context_forget',
+                            # kernel_constraint=tf.keras.constraints.UnitNorm()
+                            )
 
     @tf.function
     def compute_context(self, x):
         """Function used with tf.map_fn, that computes (and thus updates) the context one element at a time"""
-        # forget
         f = self.forget(self.context)
         c = tf.multiply(f, self.context)
+        r = self.rate(tf.expand_dims(x, axis=0))
 
         # new context
-        self.context.assign(tf.add(c, x))
+        self.context.assign(tf.add(c, r * x))
+        # self.context.assign(tf.add(c, x))
         return self.context[0]
-
-    # def call(self, inputs: list, training=False, **kwargs):
-    #     # preserve
-    #     z = concatenate(inputs)
-    #     z = self.embed(self.linear(z))
-    #
-    #     # forget
-    #     f = self.forget(self.context)
-    #     c = multiply([f, self.context])
-    #
-    #     # new context
-    #     self.context.assign(value=add(z, c)[-1])
-    #     return self.context
 
     def call(self, inputs: list, training=False, **kwargs):
         # preserve
         z = concatenate(inputs)
         z = self.embed(self.linear(z))
 
-        # self.context.assign(tf.foldl(fn=self.compute_context, elems=z, initializer=self.context))
+        # return z
         results = tf.map_fn(fn=self.compute_context, elems=z)
         return results
 
     def reset(self):
-        self.context = tf.Variable(initial_value=tf.zeros(shape=self.context_shape), trainable=False)
+        # self.context = tf.Variable(initial_value=tf.zeros(shape=self.context_shape), trainable=False)
+        # self.context = tf.Variable(initial_value=tf.ones(shape=self.context_shape), trainable=False)
+        self.context = tf.Variable(initial_value=tf.random.normal(shape=self.context_shape, stddev=0.1),
+                                   trainable=False)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -313,15 +256,6 @@ def dynamics_layers(inputs: dict, context_units: int, **kwargs):
     z_obs = Concatenate(name='z_obs')([image_out, road_out, vehicle_out, command_out])
 
     # context on actions, values, and observations:
-    # #  z: how much new information to "preserve"
-    # z = embedding(layer=concatenate([z_obs, z_action, z_value]), linear_units=int(context_units * 1.5),
-    #               units=context_units, activation=tf.nn.sigmoid, use_bias=False, name='z')
-    #
-    # #  f: how much past information to "forget"
-    # f = Dense(context_units, activation=tf.nn.sigmoid, use_bias=False)(inputs['context'])
-    # c = multiply([f, inputs['context']])
-    # context = Add(name='new_context')([z, c])
-
     context_layer = ContextLayer(size=context_units)
     context = context_layer([z_obs, z_action, z_value])
 
@@ -337,12 +271,13 @@ def control_layers(inputs: dict, num_layers: int, units_multiplier: int, noise=0
     x = feature_net(inputs['dynamics'], noise=noise, num_layers=num_layers, units=units, dropout=dropout)
 
     # implicit branching by 'command'
-    command = tf.squeeze(inputs['command'])
-    selector: tf.Tensor = tf.repeat(command, repeats=units_multiplier, axis=0)
-    selector.set_shape((units,))
+    # command = 1.0 - tf.squeeze(inputs['command'])
+    command = 1.0 - inputs['command']
 
-    branch = tf.boolean_mask(tensor=x, mask=selector, axis=1)
-    branch.set_shape((None, units_multiplier))
+    selector = tf.repeat(command, repeats=units_multiplier, axis=1)
+    selector.set_shape((None, units))
+
+    branch = tf.multiply(x, selector)
     return branch
 
 
@@ -352,30 +287,77 @@ class CARLANetwork(networks.PPONetwork):
     def __init__(self, agent, context_size: int,  control: dict, dynamics: dict):
         self.agent = agent  # workaround
         self.context_size = context_size
-        self.context_layer = None
+        self.context_layer: ContextLayer = None
+
+        # Input tensors
+        self.inputs = None
         self.intermediate_inputs = None
 
+        # Dynamics model
         self.dynamics = self.dynamics_model(**dynamics)
-        self.memory = self.agent.memory
+        self.dynamics_output = None
+
+        # Projection model & head
+        self.projection = None
+        self.projection_head = None
+        self.projection_args = None
 
         super().__init__(agent, **control)
 
     def act(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
         raise NotImplementedError
 
-    @tf.function
     def predict(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
-        # inputs = inputs.copy()
+        dynamics_inputs = self.data_for_dynamics(inputs)
+        dynamics_output = self.dynamics_predict(dynamics_inputs)
+
+        return super().predict(inputs=dynamics_output)
+
+    def data_for_dynamics(self, inputs):
+        inputs = inputs.copy()
+        memory = self.agent.memory
 
         # 'last action' and 'last value' as inputs along the current observation
-        if tf.shape(self.memory.actions)[0] == 0:
-            inputs['action'] = tf.zeros(self.action_shape)
+        if tf.shape(memory.actions)[0] == 0:
+            inputs['action'] = tf.zeros((1, self.agent.num_actions))
             inputs['value'] = tf.zeros((1, 1))
         else:
-            inputs['action'] = self.memory.actions[-1]
-            inputs['value'] = self.memory.values[-1]
+            inputs['action'] = tf.expand_dims(memory.actions[-1], axis=0)
+            inputs['value'] = tf.expand_dims(memory.values[-1], axis=0)
+        return inputs
 
-        return super().predict(inputs)
+    @tf.function
+    def dynamics_predict(self, inputs: dict):
+        # TODO: stop_gradient?
+        out = tf.stop_gradient(self.dynamics(inputs, training=False))
+        return dict(dynamics=out, command=inputs['state_command'])
+
+    def projection_predict(self, inputs: dict):
+        self.context_layer.reset()
+        return self._projection_predict(inputs)
+
+    @tf.function
+    def _projection_predict(self, inputs: dict):
+        return self.projection(inputs)
+
+    def predict_last_value(self, terminal_state):
+        dynamics_data = self.data_for_dynamics(terminal_state)
+        dynamics_out = self.dynamics_predict(dynamics_data)
+
+        return self.value_predict(dynamics_out)
+
+    def update_step_policy(self, batch):
+        states, advantages, actions, log_probs, values = batch
+        states['action'] = actions
+        states['value'] = values
+
+        self.dynamics_output = self.dynamics_predict(states)
+
+        return super().update_step_policy(batch=(self.dynamics_output, advantages, actions, log_probs))
+
+    def update_step_value(self, batch):
+        returns = batch
+        return super().update_step_value(batch=(self.dynamics_output, returns))
 
     def policy_layers(self, inputs: Dict[str, Input], **kwargs) -> Layer:
         return control_layers(inputs, **kwargs)
@@ -384,16 +366,38 @@ class CARLANetwork(networks.PPONetwork):
         """Implicit Dynamics Model,
            - Inputs: state/observation, action, value
         """
-        inputs = self._get_input_layers()
-        inputs['value'] = Input(shape=(1,), name='value')
-        inputs['action'] = Input(shape=self.agent.action_shape, name='action')
+        self.inputs = self._get_input_layers()
+        self.inputs['value'] = Input(shape=(1,), name='value')
+        self.inputs['action'] = Input(shape=(self.agent.num_actions,), name='action')
 
-        outputs, self.context_layer = dynamics_layers(inputs, context_units=self.context_size, **kwargs)
+        outputs, self.context_layer = dynamics_layers(self.inputs, context_units=self.context_size, **kwargs)
 
         self.intermediate_inputs = dict(dynamics=Input(shape=outputs.shape[1:], name='dynamics_int'),
-                                        command=inputs['state_command'])
+                                        command=self.inputs['state_command'])
 
-        return Model(inputs, outputs, name='Dynamics-Model')
+        return Model(self.inputs, outputs, name='Dynamics-Model')
+
+    def projection_head_model(self, num_layers=2, units=128, activation=tf.nn.relu6):
+        inputs = self.intermediate_inputs['dynamics']
+        x = inputs
+
+        for _ in range(num_layers):
+            x = Dense(units, activation=activation)(x)
+
+        z_projection = Dense(units, activation='linear', name='projection_head')(x)
+        return Model(inputs=inputs, outputs=z_projection, name='Projection-Head')
+
+    def projection_model(self, num_layers=2, units=128, activation=tf.nn.relu6):
+        self.projection_args = dict(num_layers=num_layers, units=units, activation=activation)
+
+        # projection-head model:
+        self.projection_head = self.projection_head_model(num_layers, units, activation)
+
+        # link dynamics model with projection-head:
+        dynamics_out = self.dynamics(self.inputs)
+        projection_out = self.projection_head(dynamics_out)
+
+        self.projection = Model(self.inputs, projection_out, name='Projection-Model')
 
     def policy_network(self, **kwargs) -> Model:
         last_layer = self.policy_layers(self.intermediate_inputs, **kwargs)
@@ -407,9 +411,21 @@ class CARLANetwork(networks.PPONetwork):
 
         return Model(inputs=self.intermediate_inputs, outputs=value, name='Value-Network')
 
+    def get_context(self):
+        return self.context_layer.context.value()
+
     def reset(self):
         super().reset()
         self.context_layer.reset()
+        self.dynamics_output = None
+
+    def reset_projection(self):
+        # Fix about None gradients from `tape.gradient()` in `projection` when creating a new projection model.
+        # The issues came from the _predict() method being decorated with @tf.function, it's only compiled once and so
+        # refers to the old projection layers. Actually the fix is to avoid creating a new model each time
+        # `agent.representation_learning(...)` is called, but just reset projection's weights.
+        projection_head = self.projection_head_model(**self.projection_args)
+        self.projection_head.set_weights(projection_head.get_weights())
 
     def summary(self):
         super().summary()

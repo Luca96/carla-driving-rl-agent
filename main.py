@@ -3,7 +3,7 @@ import pygame
 import logging
 import tensorflow as tf
 
-import tests
+from core import learning
 
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -12,7 +12,6 @@ logger.setLevel(logging.ERROR)
 
 
 if __name__ == '__main__':
-    # tests.curriculum_learning()
-    # benchmark_networks(batch_size=64, summary=True, dilation=())
-    # pygame.quit()
-    pass
+    learning.stage_1(episodes=10 - 9, timesteps=512 // 4, seed=123).run(repeat=5, collect=0)
+
+    pygame.quit()
