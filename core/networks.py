@@ -1,6 +1,7 @@
 """Networks architectures for CARLA Agent"""
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
@@ -8,286 +9,90 @@ from tensorflow.keras.models import Model
 from typing import List, Dict, Union
 
 from rl import networks
+from rl import utils
 
 
 # -------------------------------------------------------------------------------------------------
+# -- FEATURE-NET (feed-forward nn for feature vector)
+# -------------------------------------------------------------------------------------------------
 
-def feature_net(input_feature: Input, noise=0.05, num_layers=2, units=32, expansion=1.5, dropout=0.2) -> Layer:
-    """Network for vector features"""
-    def activation(layer: Layer):
-        layer = BatchNormalization()(layer)
-        layer = tf.nn.relu6(layer)
-        return layer
+def feature(input_feature: Layer, units=32, num_layers=2, activation=utils.swish6, normalization='batch'):
+    if normalization == 'batch':
+        x = BatchNormalization()(input_feature)
+    else:
+        x = input_feature
 
-    x = BatchNormalization()(input_feature)
-
-    if noise > 0.0:
-        x = GaussianNoise(stddev=noise)(x)
-
-    # layers: linear dense -> dropout -> dense -> batch-norm
     for _ in range(num_layers):
-        x = Dense(units=int(units * expansion), activation='linear')(x)
-
-        if dropout > 0.0:
-            x = Dropout(rate=dropout)(x)
-
-        x = Dense(units, activation=None)(x)
-        x = activation(x)
+        x = Dense(units, activation=activation)(x)
 
     return x
 
 
-def embedding(layer: Layer, name: str, linear_units: int, units: int, activation=tf.nn.relu6, use_bias=True):
-    if linear_units > 0:
-        layer = Dense(units=linear_units, activation='linear')(layer)
-
-    return Dense(units, activation=activation, use_bias=use_bias, name=name)(layer)
-
-
-def convolutional(input_layer: Input, filters=32, filters_multiplier=1.0, blocks=2, units=64, dropout=0.2,
-                  kernel=(3, 3), strides=(2, 2), activation='swish', padding='same', name='conv_out'):
-    """Convolutional neural network"""
-    def block(prev_layer, i):
-        h = DepthwiseConv2D(kernel_size=kernel, padding=padding, activation=activation)(prev_layer)
-        h = Conv2D(filters=int(filters * i * filters_multiplier), kernel_size=kernel, padding=padding)(h)
-        h = ReLU(max_value=6.0, negative_slope=0.2)(h)
-        h = SpatialDropout2D(rate=dropout)(h)
-        h = MaxPooling2D(pool_size=3, strides=strides)(h)  # overlapping max-pool
-        return h
-
-    x = input_layer
-    k = 0
-    for _ in range(blocks):
-        x1 = block(x, i=k + 1)
-        x2 = DepthwiseConv2D(kernel_size=kernel, padding='same', activation='swish')(x1)
-        k += 2
-        x = concatenate([x1, x2], axis=-1)  # depth-concat
-        x = LayerNormalization()(x)
-
-    x = GlobalAveragePooling2D()(x)
-    x = LayerNormalization()(x)
-    x = tf.expand_dims(x, axis=0)
-
-    # 1-timestep RNN
-    x, state = GRU(units, stateful=True, return_state=True)(x)
-    return subtract([x, state], name=name)
-
-
-def residual_net(input_layer: Layer, initial_filters=32, kernel=3, depth_mul=1, dropout=0.25, activation=tf.nn.swish,
-                 num_layers=4):
-    def block(layer: Layer, filters: int, strides=1):
-        h = SeparableConv2D(filters=filters, kernel_size=kernel, strides=strides,
-                            depth_multiplier=depth_mul, padding='same')(layer)
-        h = SpatialDropout2D(rate=dropout)(h)
-        h = LayerNormalization()(h)
-        return activation(h)
-
-    def residual_block(layer: Layer, filters: int):
-        h1 = block(layer, filters, strides=1)
-        h1 = MaxPooling2D(pool_size=2)(h1)
-        h2 = block(layer, filters, strides=2)
-
-        return Add()([h1, h2])
-
-    x = LayerNormalization()(input_layer)
-    x = activation(x)
-
-    for i in range(1, num_layers + 1):
-        x = residual_block(x, filters=initial_filters * i)
-        x = activation(x)
-
-    x = GlobalAveragePooling2D()(x)
-    x = Dropout(rate=dropout)(x)
-    x = LayerNormalization()(x)
-    return activation(x)
-
-
 # -------------------------------------------------------------------------------------------------
-# -- ShuffleNet V2
+# -- SHARED NETWORK (P_\psi)
 # -------------------------------------------------------------------------------------------------
 
-def shufflenet_v2(image_shape: tuple, num_features=40, g=1.0, leak=0.0, last_channels=1024, dilation=(1, 1),
-                  strides=(2, 2)):
-    """ShuffleNet-V2
-       https://github.com/tensorpack/tensorpack/blob/master/examples/ImageNetModels/shufflenet.py
-    """
-    channels = {0.5: [48, 96, 192],
-                1.0: [116, 232, 464],
-                1.5: [176, 352, 704],
-                2.0: [244, 488, 976]}
-
-    def activation(layer: Layer):
-        """Activation: BatchNormalization + ReLU6"""
-        layer = BatchNormalization()(layer)
-        layer = ReLU(max_value=6.0, negative_slope=leak)(layer)
-        return layer
-
-    def channel_shuffle(layer: Layer, groups=2):
-        in_shape = layer.get_shape().as_list()
-        in_channel = in_shape[-1]
-        assert in_channel % groups == 0, in_channel
-
-        # (batch, h, w, c, group)
-        layer = tf.reshape(layer, [-1, in_shape[1], in_shape[2], in_channel // groups, groups])
-        layer = tf.transpose(layer, [0, 1, 2, 4, 3])
-        layer = tf.reshape(layer, [-1, in_shape[1], in_shape[2], in_channel])
-        return layer
-
-    def shufflenet_v2_unit(layer: Layer, num_channels: int, stride: int):
-        # channel split:
-        if stride == 1:
-            shortcut, layer = tf.split(layer, 2, axis=-1)
-        else:
-            shortcut, layer = layer, layer
-
-        shortcut_channels = int(shortcut.shape[-1])
-
-        # 1x1 pointwise conv -> 3x3 depthwise conv -> batch-norm -> 1x1 conv
-        layer = Conv2D(num_channels // 2, kernel_size=1, dilation_rate=dilation, padding='same')(layer)
-        layer = activation(layer)
-        layer = DepthwiseConv2D(kernel_size=3, strides=stride, dilation_rate=dilation, padding='same')(layer)
-        layer = BatchNormalization()(layer)
-        layer = Conv2D(num_channels - shortcut_channels, kernel_size=1, dilation_rate=dilation, padding='same')(layer)
-        layer = activation(layer)
-
-        if stride == 2:
-            shortcut = DepthwiseConv2D(kernel_size=3, strides=2, dilation_rate=dilation, padding='same')(shortcut)
-            shortcut = BatchNormalization()(shortcut)
-            shortcut = Conv2D(shortcut_channels, kernel_size=1, dilation_rate=dilation, padding='same')(shortcut)
-            shortcut = activation(shortcut)
-
-        output = tf.concat([shortcut, layer], axis=-1)
-        output = channel_shuffle(output)
-        return output
-
-    def shufflenet_stage(layer: Layer, num_channels: int, num_blocks: int):
-        for i in range(num_blocks):
-            layer = shufflenet_v2_unit(layer, num_channels, stride=strides if i == 0 else 1)
-        return layer
-
-    # Input
-    inputs = Input(shape=image_shape, name='images')
-    x = Conv2D(24, kernel_size=3, strides=strides)(inputs)
-    x = activation(x)
-    x = MaxPooling2D(pool_size=3, strides=strides, padding='same')(x)
-
-    # Stages
-    c1, c2, c3 = channels[g]
-    x = shufflenet_stage(x, num_channels=c1, num_blocks=4)
-    x = shufflenet_stage(x, num_channels=c2, num_blocks=8)
-    x = shufflenet_stage(x, num_channels=c3, num_blocks=4)
-
-    # Output
-    x = Conv2D(last_channels, kernel_size=1)(x)
-    x = activation(x)
-    x = GlobalAveragePooling2D()(x)
-    outputs = Dense(num_features, activation='sigmoid')(x)
-
-    return Model(inputs, outputs, name='ShuffleNet-V2')
-
-
-# -------------------------------------------------------------------------------------------------
-
-class ContextLayer(Layer):
-    def __init__(self, size: int):
-        super().__init__()
-
-        self.context_shape = (1, size)
-        self.context: tf.Variable = None
-        self.reset()
-
-        # z: how much new information to "preserve"
-        self.linear = Dense(units=int(size * 1.5), activation='linear', name='context_linear')
-        self.embed = Dense(units=size, activation=tf.nn.sigmoid, use_bias=False, name='context_preserve',
-                           # kernel_constraint=tf.keras.constraints.MaxNorm()
-                           )
-
-        # r: how much new information to "add"
-        self.rate = Dense(units=1, activation='tanh', use_bias=False, name='context_rate',
-                          # kernel_constraint=tf.keras.constraints.UnitNorm()
-                          )
-
-        # f: how much past information to "forget"
-        # self.forget = Dense(units=size, activation=tf.nn.sigmoid, use_bias=False, name='context_forget')
-        self.forget = Dense(units=size, activation='softmax', use_bias=False, name='context_forget',
-                            # kernel_constraint=tf.keras.constraints.UnitNorm()
-                            )
-
-    @tf.function
-    def compute_context(self, x):
-        """Function used with tf.map_fn, that computes (and thus updates) the context one element at a time"""
-        f = self.forget(self.context)
-        c = tf.multiply(f, self.context)
-        r = self.rate(tf.expand_dims(x, axis=0))
-
-        # new context
-        self.context.assign(tf.add(c, r * x))
-        # self.context.assign(tf.add(c, x))
-        return self.context[0]
-
-    def call(self, inputs: list, training=False, **kwargs):
-        # preserve
-        z = concatenate(inputs)
-        z = self.embed(self.linear(z))
-
-        # return z
-        results = tf.map_fn(fn=self.compute_context, elems=z)
-        return results
-
-    def reset(self):
-        # self.context = tf.Variable(initial_value=tf.zeros(shape=self.context_shape), trainable=False)
-        # self.context = tf.Variable(initial_value=tf.ones(shape=self.context_shape), trainable=False)
-        self.context = tf.Variable(initial_value=tf.random.normal(shape=self.context_shape, stddev=0.1),
-                                   trainable=False)
-
-
-# -------------------------------------------------------------------------------------------------
-
-def dynamics_layers(inputs: dict, context_units: int, **kwargs):
-    # process observation:
+def dynamics_layers(inputs: dict, **kwargs):
+    """Defined the shared-network architecture, returns its last layer"""
+    # process observations:
     image_out = networks.shufflenet_v2(inputs['state_image'], **kwargs.get('shufflenet', {}))
-    road_out = feature_net(inputs['state_road'], **kwargs.get('road', {}),)
-    vehicle_out = feature_net(inputs['state_vehicle'], **kwargs.get('vehicle', {}),)
-    command_out = feature_net(inputs['state_command'], **kwargs.get('command', {}),)
+    image_out = feature(image_out, **kwargs.get('image', dict(noise=0.0, units=128)))
 
-    # embeddings (z):
-    z_action = embedding(inputs['action'], **kwargs.get('action', {}), name='z_action')
-    z_value = embedding(inputs['value'], **kwargs.get('value', {}), name='z_value')
-    z_obs = Concatenate(name='z_obs')([image_out, road_out, vehicle_out, command_out])
+    road_out = feature(inputs['state_road'], **kwargs.get('road', dict(normalization=None)))
+    vehicle_out = feature(inputs['state_vehicle'], **kwargs.get('vehicle', {}), )
+    control_out = feature(inputs['state_past_control'], **kwargs.get('control', {}), )
+    command_out = feature(inputs['state_command'], **kwargs.get('command', {}), )
 
-    # context on actions, values, and observations:
-    context_layer = ContextLayer(size=context_units)
-    context = context_layer([z_obs, z_action, z_value])
+    agent_in = concatenate([inputs['action'], inputs['value'], inputs['reward']])
+    agent_out = feature(agent_in, **kwargs.get('agent', {}))
 
-    # output:
-    dynamics_out = Concatenate(name='dynamics_out')([context, z_obs, z_action, z_value])
-    return dynamics_out, context_layer
+    dynamics_out = concatenate([command_out, control_out, image_out, road_out, vehicle_out, agent_out],
+                               name='dynamics_out')
+    return dynamics_out, []
 
 
-def control_layers(inputs: dict, num_layers: int, units_multiplier: int, noise=0.0, dropout=0.0):
-    assert units_multiplier > 0
+def control_branch(inputs: dict, units: int, num_layers: int, activation=utils.swish6):
+    x = inputs['dynamics']
 
-    units = inputs['command'].shape[1] * units_multiplier
-    x = feature_net(inputs['dynamics'], noise=noise, num_layers=num_layers, units=units, dropout=dropout)
+    for _ in range(num_layers):
+        x = BatchNormalization()(x)
+        x = Dense(units, activation=activation)(x)
 
-    # implicit branching by 'command'
-    # command = 1.0 - tf.squeeze(inputs['command'])
-    command = 1.0 - inputs['command']
+    return x
 
-    selector = tf.repeat(command, repeats=units_multiplier, axis=1)
-    selector.set_shape((None, units))
 
-    branch = tf.multiply(x, selector)
-    return branch
+def select_branch(branches, command):
+    """Branch-selection mechanism"""
+    branches_out = concatenate(branches)
+    branch_size = branches[0].shape[1]
+    command_size = command.shape[1]
+
+    # multiply the branches by the command mask to select one branch, i.e. [0. 0. 0. x y z 0. 0. 0.] for branch-2
+    command_mask = tf.repeat(command, repeats=branch_size, axis=1)
+    selected_branch = tf.multiply(branches_out, command_mask)
+
+    # reshape the output into a NxN square matrix then sum over rows, i.e. x = 0 + x + 0
+    branch_out = tf.reshape(selected_branch, shape=(-1, command_size, branch_size))
+    branch_out = tf.reduce_sum(branch_out, axis=1)
+    return branch_out
 
 
 # -------------------------------------------------------------------------------------------------
 
 class CARLANetwork(networks.PPONetwork):
-    def __init__(self, agent, context_size: int,  control: dict, dynamics: dict):
+    """The CARLAgent network"""
+
+    def __init__(self, agent, control_policy: dict, control_value: dict, dynamics: dict, update_dynamics=False):
+        """
+        :param agent: a CARLAgent instance.
+        :param control_policy: dict that specifies the policy-branch of the network.
+        :param control_value: dict that specifies the value-branch of the network.
+        :param dynamics: dict that specifies the architectures of the shared dynamics network.
+        :param update_dynamics: set to False to prevent updating the dynamics network.
+        """
         self.agent = agent  # workaround
-        self.context_size = context_size
-        self.context_layer: ContextLayer = None
+        self.recurrences = []
+        self.should_update_dynamics = update_dynamics
 
         # Input tensors
         self.inputs = None
@@ -295,137 +100,204 @@ class CARLANetwork(networks.PPONetwork):
 
         # Dynamics model
         self.dynamics = self.dynamics_model(**dynamics)
-        self.dynamics_output = None
 
-        # Projection model & head
-        self.projection = None
-        self.projection_head = None
-        self.projection_args = None
+        # Imitation pretraining model: dynamics + policy & value
+        self.imitation = None
+        self.inference = None
 
-        super().__init__(agent, **control)
+        self.beta = None
+        self.action_index = 0
 
+        super().__init__(agent, policy=control_policy, value=control_value)
+
+    @tf.function
     def act(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
-        raise NotImplementedError
+        dynamics_out = self.dynamics_predict(inputs)
+        action = self.predict_actions(dynamics_out)
+        value = self.value_predict(dynamics_out)
+        return [action, value]
+
+    @tf.function
+    def predict_actions(self, inputs):
+        return self.policy(inputs, training=False)['actions']
+
+    def value_predict(self, inputs):
+        return super().value_predict(inputs)['value']
 
     def predict(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
         dynamics_inputs = self.data_for_dynamics(inputs)
         dynamics_output = self.dynamics_predict(dynamics_inputs)
 
-        return super().predict(inputs=dynamics_output)
+        return self._predict(inputs=dynamics_output)
+
+    @tf.function
+    def _predict(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
+        policy = self.old_policy(inputs, training=False)
+        value = self.value_predict(inputs)
+        self.action_index += 1
+
+        return policy['actions'], policy['mean'], policy['std'], policy['log_prob'], value
 
     def data_for_dynamics(self, inputs):
         inputs = inputs.copy()
         memory = self.agent.memory
 
-        # 'last action' and 'last value' as inputs along the current observation
         if tf.shape(memory.actions)[0] == 0:
+            inputs['value'] = tf.zeros_like(self.last_value)
+            inputs['reward'] = tf.zeros((1, 1))
             inputs['action'] = tf.zeros((1, self.agent.num_actions))
-            inputs['value'] = tf.zeros((1, 1))
         else:
-            inputs['action'] = tf.expand_dims(memory.actions[-1], axis=0)
             inputs['value'] = tf.expand_dims(memory.values[-1], axis=0)
+            inputs['action'] = tf.expand_dims(memory.actions[-1], axis=0)
+            inputs['reward'] = tf.expand_dims(memory.rewards[-1], axis=0)
+
         return inputs
 
     @tf.function
     def dynamics_predict(self, inputs: dict):
-        # TODO: stop_gradient?
-        out = tf.stop_gradient(self.dynamics(inputs, training=False))
-        return dict(dynamics=out, command=inputs['state_command'])
-
-    def projection_predict(self, inputs: dict):
-        self.context_layer.reset()
-        return self._projection_predict(inputs)
+        return self.dynamics(inputs, training=False)
 
     @tf.function
-    def _projection_predict(self, inputs: dict):
-        return self.projection(inputs)
+    def dynamics_predict_train(self, inputs: dict):
+        return self.dynamics(inputs, training=True)
 
-    def predict_last_value(self, terminal_state):
-        dynamics_data = self.data_for_dynamics(terminal_state)
+    def predict_last_value(self, state, is_terminal: bool, **kwargs):
+        if is_terminal:
+            return self.last_value
+
+        dynamics_data = self.data_for_dynamics(state)
         dynamics_out = self.dynamics_predict(dynamics_data)
 
         return self.value_predict(dynamics_out)
 
-    def update_step_policy(self, batch):
-        states, advantages, actions, log_probs, values = batch
-        states['action'] = actions
-        states['value'] = values
-
-        self.dynamics_output = self.dynamics_predict(states)
-
-        return super().update_step_policy(batch=(self.dynamics_output, advantages, actions, log_probs))
-
-    def update_step_value(self, batch):
-        returns = batch
-        return super().update_step_value(batch=(self.dynamics_output, returns))
-
     def policy_layers(self, inputs: Dict[str, Input], **kwargs) -> Layer:
-        return control_layers(inputs, **kwargs)
+        return control_branch(inputs, **kwargs)
 
     def dynamics_model(self, **kwargs) -> Model:
         """Implicit Dynamics Model,
            - Inputs: state/observation, action, value
         """
         self.inputs = self._get_input_layers()
-        self.inputs['value'] = Input(shape=(1,), name='value')
+        self.inputs['value'] = Input(shape=(2,), name='value')
+        self.inputs['reward'] = Input(shape=(1,), name='reward')
         self.inputs['action'] = Input(shape=(self.agent.num_actions,), name='action')
 
-        outputs, self.context_layer = dynamics_layers(self.inputs, context_units=self.context_size, **kwargs)
+        dynamics_out, self.recurrences = dynamics_layers(self.inputs, **kwargs)
 
-        self.intermediate_inputs = dict(dynamics=Input(shape=outputs.shape[1:], name='dynamics_int'),
-                                        command=self.inputs['state_command'])
+        self.intermediate_inputs = dict(dynamics=Input(shape=dynamics_out.shape[1:], name='dynamics'),
+                                        command=self.inputs['state_command'], action=self.inputs['action'])
 
-        return Model(self.inputs, outputs, name='Dynamics-Model')
-
-    def projection_head_model(self, num_layers=2, units=128, activation=tf.nn.relu6):
-        inputs = self.intermediate_inputs['dynamics']
-        x = inputs
-
-        for _ in range(num_layers):
-            x = Dense(units, activation=activation)(x)
-
-        z_projection = Dense(units, activation='linear', name='projection_head')(x)
-        return Model(inputs=inputs, outputs=z_projection, name='Projection-Head')
-
-    def projection_model(self, num_layers=2, units=128, activation=tf.nn.relu6):
-        self.projection_args = dict(num_layers=num_layers, units=units, activation=activation)
-
-        # projection-head model:
-        self.projection_head = self.projection_head_model(num_layers, units, activation)
-
-        # link dynamics model with projection-head:
-        dynamics_out = self.dynamics(self.inputs)
-        projection_out = self.projection_head(dynamics_out)
-
-        self.projection = Model(self.inputs, projection_out, name='Projection-Model')
+        return Model(self.inputs, outputs=dict(dynamics=dynamics_out, command=self.inputs['state_command'],
+                                               action=self.inputs['action']), name='Dynamics-Model')
 
     def policy_network(self, **kwargs) -> Model:
-        last_layer = self.policy_layers(self.intermediate_inputs, **kwargs)
-        action = self.get_distribution_layer(last_layer)
+        num_actions = self.agent.num_actions
+        command = self.intermediate_inputs['command']
 
-        return Model(inputs=self.intermediate_inputs, outputs=action, name='Policy-Network')
+        branches = [self.policy_branch(i, **kwargs) for i in range(command.shape[1])]
+        branch_out = select_branch(branches, command)
+
+        outputs = dict(actions=branch_out[:, 0:num_actions], log_prob=branch_out[:, num_actions + 1],
+                       old_log_prob=branch_out[:, num_actions + 2], mean=branch_out[:, num_actions + 3],
+                       std=branch_out[:, num_actions + 4], entropy=branch_out[:, num_actions + 5],
+                       similarity=branch_out[:, -2], speed=branch_out[:, -1])
+        return Model(inputs=self.intermediate_inputs, outputs=outputs, name='Policy-Network')
+
+    def policy_branch(self, index: int, **kwargs):
+        branch = self.policy_layers(self.intermediate_inputs, **kwargs)
+        distribution_out = self.get_distribution_layer(branch, index)
+
+        # auxiliary outputs
+        similarity = Dense(units=1, activation=tf.nn.tanh, name=f'pi-similarity-{index}')(branch)
+        speed = Dense(units=1, activation=lambda x: 2.0 * tf.nn.sigmoid(x), name=f'pi-speed-{index}')(branch)
+
+        return concatenate([*distribution_out, similarity, speed])
 
     def value_network(self, **kwargs) -> Model:
+        exp_scale = kwargs.pop('exponent_scale', 6.0)
+        components = kwargs.pop('components', 1)
+        command = self.intermediate_inputs['command']
+
+        branches = [self.value_branch(i, exp_scale, components, **kwargs) for i in range(command.shape[1])]
+        branch_out = select_branch(branches, command)
+
+        outputs = dict(value=branch_out[:, 0:2], similarity=branch_out[:, 2], speed=branch_out[:, 3])
+        return Model(inputs=self.intermediate_inputs, outputs=outputs, name='Value-Network')
+
+    def value_branch(self, index: int, exp_scale: float, components: int, **kwargs):
         branch = self.value_layers(self.intermediate_inputs, **kwargs)
-        value = Dense(units=1, activation=None, dtype=tf.float32, name='value_head')(branch)
+        value = self.value_head(branch, index, exponent_scale=exp_scale, components=components)
 
-        return Model(inputs=self.intermediate_inputs, outputs=value, name='Value-Network')
+        # auxiliary outputs
+        speed = Dense(units=1, activation=lambda x: 2.0 * tf.nn.sigmoid(x), name=f'v-speed-{index}')(branch)
+        similarity = Dense(units=1, activation=tf.nn.tanh, name=f'v-similarity-{index}')(branch)
 
-    def get_context(self):
-        return self.context_layer.context.value()
+        return concatenate([value, similarity, speed])
+
+    def value_head(self, layer: Layer, index=0, exponent_scale=6.0, **kwargs):
+        assert exponent_scale > 0.0
+
+        base = Dense(units=1, activation=tf.nn.tanh, name=f'v-base-{index}')(layer)
+        exp = Dense(units=1, activation=lambda x: exponent_scale * tf.nn.sigmoid(x), name=f'v-exp-{index}')(layer)
+
+        return concatenate([base, exp], axis=1)
+
+    def get_distribution_layer(self, layer: Layer, index=0) -> tfp.layers.DistributionLambda:
+        num_actions = self.agent.num_actions
+
+        alpha = Dense(units=num_actions, activation=utils.softplus(1.0 + 1e-2), name=f'alpha-{index}')(layer)
+        beta = Dense(units=num_actions, activation=utils.softplus(1.0 + 1e-2), name=f'beta-{index}')(layer)
+
+        self.beta = tfp.layers.DistributionLambda(
+                make_distribution_fn=lambda t: tfp.distributions.Beta(t[0], t[1]),
+                convert_to_tensor_fn=self._distribution_to_tensor)([alpha, beta])
+
+        return self.beta
+
+    def _distribution_to_tensor(self, d: tfp.distributions.Distribution):
+        actions = d.sample()
+        old_actions = self.intermediate_inputs['action'][self.action_index]
+
+        log_prob = d.log_prob(self._clip_actions(actions))
+        old_log_prob = d.log_prob(self._clip_actions(old_actions))
+
+        return actions, log_prob, old_log_prob, d.mean(), d.stddev(), d.entropy()
+
+    @staticmethod
+    def _clip_actions(actions):
+        return tf.clip_by_value(actions, utils.EPSILON, 1.0 - utils.EPSILON)
+
+    def imitation_model(self):
+        if self.imitation is not None:
+            return
+
+        # link dynamics with policy and value networks
+        dynamics_out = self.dynamics(self.inputs)
+        policy_out = self.policy(dynamics_out)
+        value_out = self.value(dynamics_out)
+
+        self.imitation = Model(self.inputs, outputs=[policy_out, value_out], name='Imitation-Model')
+
+    @tf.function
+    def imitation_predict(self, inputs: dict):
+        return self.imitation(inputs, training=True)
+
+    def init_inference_model(self):
+        if self.inference is not None:
+            return
+
+        dynamics_out = self.dynamics(self.inputs)
+        policy_out = self.policy(dynamics_out)
+        value_out = self.value(dynamics_out)
+
+        self.inference = Model(self.inputs, outputs=[policy_out, value_out], name='Inference-Model')
 
     def reset(self):
         super().reset()
-        self.context_layer.reset()
-        self.dynamics_output = None
+        self.action_index = 0
 
-    def reset_projection(self):
-        # Fix about None gradients from `tape.gradient()` in `projection` when creating a new projection model.
-        # The issues came from the _predict() method being decorated with @tf.function, it's only compiled once and so
-        # refers to the old projection layers. Actually the fix is to avoid creating a new model each time
-        # `agent.representation_learning(...)` is called, but just reset projection's weights.
-        projection_head = self.projection_head_model(**self.projection_args)
-        self.projection_head.set_weights(projection_head.get_weights())
+        for gru in self.recurrences:
+            gru.reset_states()
 
     def summary(self):
         super().summary()
@@ -434,14 +306,11 @@ class CARLANetwork(networks.PPONetwork):
 
     def save_weights(self):
         super().save_weights()
-        self.dynamics.save_weights(filepath=self.agent.weights_path['dynamics'])
+        self.dynamics.save_weights(filepath=self.agent.dynamics_path)
 
-    def load_weights(self):
-        super().load_weights()
-        self.dynamics.load_weights(filepath=self.agent.weights_path['dynamics'], by_name=False)
-
-# -------------------------------------------------------------------------------------------------
-
-
-if __name__ == '__main__':
-    pass
+    def load_weights(self, full=True):
+        if full:
+            super().load_weights()
+            self.dynamics.load_weights(filepath=self.agent.dynamics_path, by_name=False)
+        else:
+            self.dynamics.load_weights(filepath=self.agent.dynamics_path, by_name=False)

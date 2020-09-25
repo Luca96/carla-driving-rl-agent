@@ -1,0 +1,2 @@
+model_checkpoint_path: "dynamics_model"
+all_model_checkpoint_paths: "dynamics_model"
