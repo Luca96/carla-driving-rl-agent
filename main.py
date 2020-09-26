@@ -28,8 +28,8 @@ if __name__ == '__main__':
     collect_experience(amount=20, threshold=0.75, name='imitation', behaviour='aggressive')
 
     # -- IMITATION LEARNING (10 epochs)
-    learning.imitation_learning(batch_size=64, lr=3e-4, shuffle_batches=True, seed=None, num_traces=50, epochs=10,
-                                alpha=1.0, beta=1.0, clip=0.5, load=True)
+    learning.imitation_learning(batch_size=64, lr=3e-4, seed=None, num_traces=50, epochs=10,
+                                alpha=1.0, beta=1.0, clip=0.5)
 
     # CURRICULUM LEARNING:
     # -- STAGE-1
@@ -48,8 +48,12 @@ if __name__ == '__main__':
         .run2(epochs=10, epoch_offset=0)
 
     # -- STAGE-4
+    learning.stage_s4(episodes=5, timesteps=64 * 3, town='Town01', gamma=0.999, lambda_=0.995, save_every='end',
+                      seed=42, polyak=0.999, aug_intensity=1.0, repeat_action=6, load_full=True) \
+        .run2(epochs=5, epoch_offset=0)
+
     learning.stage_s4(episodes=5, timesteps=64 * 3, town='Town02', gamma=0.999, lambda_=0.995, save_every='end',
                       seed=42, polyak=0.999, aug_intensity=1.0, repeat_action=6, load_full=True) \
-        .run2(epochs=10, epoch_offset=0)
+        .run2(epochs=5, epoch_offset=0)
 
     pygame.quit()

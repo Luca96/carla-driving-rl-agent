@@ -219,12 +219,12 @@ def imitation_learning(batch_size=64, lr=1e-3, alpha=0.5, beta=0.5, clip=1.0, ep
 # -- Curriculum (stages definition)
 # -------------------------------------------------------------------------------------------------
 
-def stage_s1(episodes: int, timesteps: int, save_every=None, seed=42, **kwargs):
+def stage_s1(episodes: int, timesteps: int, save_every=None, seed=42, stage_name='stage-s1', **kwargs):
     """Stage-1: origins (n=10) fixed by seed. Town-3, reverse gear disabled, steering within (-0.3, +0.3).
                 No dynamic objects."""
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name='stage-s1', traces_dir=None, load=True, seed=seed,
+        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
         policy_lr=3e-4, value_lr=3e-4,
@@ -242,11 +242,11 @@ def stage_s1(episodes: int, timesteps: int, save_every=None, seed=42, **kwargs):
                                           save_every=save_every)))
 
 
-def stage_s2(episodes: int, timesteps: int, save_every=None, seed=None, **kwargs):
+def stage_s2(episodes: int, timesteps: int, save_every=None, seed=None, stage_name='stage-s2', **kwargs):
     """Stage-2: 50 random origins + 50 pedestrians"""
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name='stage-s2', traces_dir=None, load=True, seed=seed,
+        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
         policy_lr=3e-4, value_lr=3e-4,
@@ -265,11 +265,11 @@ def stage_s2(episodes: int, timesteps: int, save_every=None, seed=None, **kwargs
                                           save_every=save_every)))
 
 
-def stage_s3(episodes: int, timesteps: int, save_every=None, seed=None, **kwargs):
+def stage_s3(episodes: int, timesteps: int, save_every=None, seed=None, stage_name='stage-s3', **kwargs):
     """Stage-3: random origin with 50 vehicles and 50 pedestrians"""
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name='stage-s3', traces_dir=None, load=True, seed=seed,
+        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
         policy_lr=3e-4, value_lr=3e-4, entropy_regularization=0.1,
@@ -287,11 +287,11 @@ def stage_s3(episodes: int, timesteps: int, save_every=None, seed=None, **kwargs
                                           save_every=save_every)))
 
 
-def stage_s4(episodes: int, timesteps: int, town: str, save_every=None, seed=None, **kwargs):
+def stage_s4(episodes: int, timesteps: int, town: str, save_every=None, seed=None, stage_name='stage-s4', **kwargs):
     """Stage-4: new town with regular traffic (50 vehicles and 50 pedestrians)"""
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name='stage-s4', traces_dir=None, load=True, seed=seed,
+        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
         policy_lr=3e-4, value_lr=3e-4, entropy_regularization=0.1,

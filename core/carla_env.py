@@ -64,6 +64,9 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         """Converts the given actions to vehicle's control"""
         super().actions_to_control(actions)
 
+        if carla_utils.speed(self.vehicle) < 10.0:
+            self.control.brake = 0.0
+
         if self.control.throttle > 0.001:
             self.control.throttle = min(self.control.throttle + self.add_throttle, 1.0)
 
@@ -192,7 +195,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         info['episode'] = self.episode
         info['timestep'] = self.timestep
         info['total_reward'] = self.total_reward
-        info['reward'] = self.reward_fn()
+        info['reward'] = self.reward()
         return info
 
     def _get_road_features(self):

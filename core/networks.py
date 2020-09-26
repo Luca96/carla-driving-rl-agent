@@ -197,9 +197,9 @@ class CARLANetwork(networks.PPONetwork):
         branches = [self.policy_branch(i, **kwargs) for i in range(command.shape[1])]
         branch_out = select_branch(branches, command)
 
-        outputs = dict(actions=branch_out[:, 0:num_actions], log_prob=branch_out[:, num_actions + 1],
-                       old_log_prob=branch_out[:, num_actions + 2], mean=branch_out[:, num_actions + 3],
-                       std=branch_out[:, num_actions + 4], entropy=branch_out[:, num_actions + 5],
+        outputs = dict(actions=branch_out[:, 0:num_actions], log_prob=branch_out[:, num_actions:num_actions * 2],
+                       old_log_prob=branch_out[:, num_actions * 2:num_actions * 3], mean=branch_out[:, -5],
+                       std=branch_out[:, -4], entropy=branch_out[:, -3],
                        similarity=branch_out[:, -2], speed=branch_out[:, -1])
         return Model(inputs=self.intermediate_inputs, outputs=outputs, name='Policy-Network')
 

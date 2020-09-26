@@ -54,9 +54,9 @@ class CARLAgent(PPOAgent):
                             vehicle=dict(units=32, num_layers=2),
                             command=dict(units=16, normalization=None),
                             control=dict(units=16, num_layers=2),
-                            shufflenet=dict(linear_units=0, g=1.0, last_channels=768 + 32),
+                            shufflenet=dict(linear_units=0, g=1.0, last_channels=800),
                             agent=dict(units=16, num_layers=2),
-                            image=dict(units=256 - 32))
+                            image=dict(units=224))
 
     # TODO: experimental `eta` and `delta` coefficients for auxiliary losses
     def __init__(self, *args, aug_intensity=1.0, clip_norm=(1.0, 1.0, 1.0), name='carla', load_full=True, eta=0.0,
