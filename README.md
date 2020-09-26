@@ -66,7 +66,7 @@ Test (or play with) the CARLA environment (requires running CARLA):
 from core import CARLAEnv
 from rl.environments import CARLAPlayWrapper
  
-# Set `debug=False` is the framerate is very low.
+# Set `debug=False` if the framerate is very low.
 # For better image quality, increase `image_shape` according to your hardware.
 env = CARLAEnv(debug=True, window_size=(900, 245), image_shape=(90, 120, 3)) 
 CARLAPlayWrapper(env).play()
@@ -88,7 +88,7 @@ Reinforcement learning example:
 ```python
 from core import learning
 
-# assume agent initialized with imitation learning
+# assume agent initialized with imitation learning (also works without initialization)
 learning.stage_s1(episodes=5, timesteps=256, gamma=0.999, lambda_=0.995, save_every='end', stage_name='stage',
                   seed=42, polyak=0.999, aug_intensity=1.0, repeat_action=6, load_full=False)\
         .run2(epochs=10)

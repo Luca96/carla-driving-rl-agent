@@ -10,7 +10,7 @@ logger = tf.get_logger()
 logger.setLevel(logging.ERROR)
 
 
-def collect_experience(timesteps=512, threshold=0.75, amount=25, name='imitation-new', behaviour='normal', town=None):
+def collect_experience(timesteps=512, threshold=0.75, amount=25, name='imitation', behaviour='normal', town=None):
     """Collects experience traces (npz file format) by running the CARLA's privileged agent."""
     # 'normal', 'cautious', or 'aggressive'
     from core import CARLAEnv
