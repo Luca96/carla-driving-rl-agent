@@ -107,6 +107,32 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
         return self.similarity
 
+    # def reward(self, *args, s=0.65, d=4.0, **kwargs) -> float:
+        # """Reward function"""
+        # speed = carla_utils.speed(self.vehicle)
+        # speed_limit = self.vehicle.get_speed_limit()
+        # dw = self.route.distance_to_next_waypoint()
+        #
+        # if self.collision_penalty > 0.0:
+        #     self.should_terminate = True
+        #     return -self.collision_penalty
+        #
+        # if self.similarity <= s:
+        #     self.should_terminate = True
+        #     self.trigger_event(CARLAEvent.OUT_OF_LANE)
+        #     return -1.0
+        #
+        # if speed > speed_limit or dw > d:
+        #     return 0.0
+        #
+        # # if speed < 1.0:
+        # #     return -0.1 * self.similarity
+        # #
+        # # if 1.0 <= speed <= 2.5:
+        # #     return 0.1 * self.similarity
+        #
+        # return (speed / speed_limit) * self.similarity
+
     def reset(self) -> dict:
         self.next_waypoint = None
         self.waypoint_reward = 0.0

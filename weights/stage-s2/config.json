@@ -1,1 +1,1 @@
-{"policy_lr": {"step": 130}, "value_lr": {"step": 130}, "adv_scale": {}, "entropy_strength": {}, "clip_ratio": {}}
+{"policy_lr": {}, "value_lr": {}, "adv_scale": {}, "entropy_strength": {}, "clip_ratio": {}}

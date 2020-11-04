@@ -192,10 +192,11 @@ class CARLANetwork(networks.PPONetwork):
 
     def policy_network(self, **kwargs) -> Model:
         num_actions = self.agent.num_actions
-        command = self.intermediate_inputs['command']
+        # command = self.intermediate_inputs['command']
 
-        branches = [self.policy_branch(i, **kwargs) for i in range(command.shape[1])]
-        branch_out = select_branch(branches, command)
+        # branches = [self.policy_branch(i, **kwargs) for i in range(command.shape[1])]
+        # branch_out = select_branch(branches, command)
+        branch_out = self.policy_branch(index=0, **kwargs)
 
         outputs = dict(actions=branch_out[:, 0:num_actions], log_prob=branch_out[:, num_actions:num_actions * 2],
                        old_log_prob=branch_out[:, num_actions * 2:num_actions * 3], mean=branch_out[:, -5],
@@ -216,10 +217,11 @@ class CARLANetwork(networks.PPONetwork):
     def value_network(self, **kwargs) -> Model:
         exp_scale = kwargs.pop('exponent_scale', 6.0)
         components = kwargs.pop('components', 1)
-        command = self.intermediate_inputs['command']
+        # command = self.intermediate_inputs['command']
 
-        branches = [self.value_branch(i, exp_scale, components, **kwargs) for i in range(command.shape[1])]
-        branch_out = select_branch(branches, command)
+        # branches = [self.value_branch(i, exp_scale, components, **kwargs) for i in range(command.shape[1])]
+        # branch_out = select_branch(branches, command)
+        branch_out = self.value_branch(0, exp_scale, components, **kwargs)
 
         outputs = dict(value=branch_out[:, 0:2], similarity=branch_out[:, 2], speed=branch_out[:, 3])
         return Model(inputs=self.intermediate_inputs, outputs=outputs, name='Value-Network')

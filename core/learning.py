@@ -211,8 +211,84 @@ def imitation_learning(batch_size=64, lr=1e-3, alpha=0.5, beta=0.5, clip=1.0, ep
                       drop_batch_remainder=False)
 
     agent.imitation_learning(alpha=alpha, beta=beta, clip_grad=clip, epochs=epochs, shuffle_data=True, polyak=polyak,
-                             lr=StepDecay(initial_value=lr, decay_steps=100, decay_rate=0.5, min_value=1e-5), **kwargs,
-                             traces_dir=os.path.join('traces', name))
+                             lr=lr, **kwargs, traces_dir=os.path.join('traces', name))
+
+
+def explore_traces(traces_dir: str, amount=64, seed=None):
+    import tensorflow as tf
+
+    amounts = dict(left=amount, right=amount, center=amount)
+
+    def filter_throttle(s, a, r):
+        mask = a[:, 0] >= 0.0
+
+        s = {k: utils.to_float(v)[mask] for k, v in s.items()}
+
+        return s, a[mask], r[tf.concat([mask, [True]], axis=0)]
+
+    def shuffle_trace(s: dict, a, r):
+        indices = tf.range(start=0, limit=tf.shape(a)[0], dtype=tf.int32)
+        indices = tf.random.shuffle(indices)
+
+        for k, v in s.items():
+            s[k] = tf.gather(v, indices)
+
+        a = tf.gather(a, indices)
+        r = tf.gather(r, tf.concat([indices, [tf.shape(r)[0] - 1]], axis=0))
+
+        return s, a, r
+
+    def mask_reward(r, mask):
+        return r[tf.concat([mask, [True]], axis=0)]
+
+    def filter_steering(s, a, r, t=0.1):
+        masks = dict(left=a[:, 1] <= -t,
+                     right=a[:, 1] >= t,
+                     center=(a[:, 1] > -t) & (a[:, 1] < t))
+
+        filtered_data = []
+
+        for k in ['left', 'center', 'right']:
+            mask = masks[k]
+            taken = int(min(amounts[k], tf.reduce_sum(tf.cast(mask, tf.int32))))
+            amounts[k] -= taken
+
+            filtered_data.append(dict(state={k: v[mask][:taken] for k, v in s.items()},
+                                      action=a[mask][:taken],
+                                      reward=mask_reward(r, mask)[:taken]))
+        return filtered_data
+
+    random.seed(seed)
+    data = None
+
+    while sum(map(lambda k_: amounts[k_], amounts)) > 0:
+        for j, trace in enumerate(utils.load_traces(traces_dir)):
+            print(f'trace-{j}')
+            print('amounts:', amounts)
+            state, action, reward, _ = utils.unpack_trace(trace)
+            state, action, reward = filter_throttle(state, utils.to_float(action), reward)
+            state, action, reward = shuffle_trace(state, action, reward)
+            f_data = filter_steering(state, action, reward)
+
+            if data is None:
+                data = f_data
+            else:
+                for i, d in enumerate(f_data):
+                    data[i]['state'] = utils.concat_dict_tensor(data[i]['state'], d['state'])
+                    data[i]['action'] = tf.concat([data[i]['action'], d['action']], axis=0)
+                    data[i]['reward'] = tf.concat([data[i]['reward'], d['reward']], axis=0)
+
+            if sum(map(lambda k_: amounts[k_], amounts)) <= 0:
+                break
+
+    for i, d in enumerate(data):
+        print(i, d['action'].shape)
+
+    d = dict(state=utils.concat_dict_tensor(*list(d['state'] for d in data)),
+             action=tf.concat(list(d['action'] for d in data), axis=0),
+             reward=tf.concat(list(d['reward'] for d in data), axis=0))
+
+    breakpoint()
 
 
 # -------------------------------------------------------------------------------------------------
@@ -249,7 +325,7 @@ def stage_s2(episodes: int, timesteps: int, save_every=None, seed=None, stage_na
         batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
-        policy_lr=3e-4, value_lr=3e-4,
+        policy_lr=3e-5, value_lr=3e-5,
         entropy_regularization=0.1, shuffle_batches=False, drop_batch_remainder=False, shuffle=True,
         clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
 
@@ -272,8 +348,8 @@ def stage_s3(episodes: int, timesteps: int, save_every=None, seed=None, stage_na
         batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
-        policy_lr=3e-4, value_lr=3e-4, entropy_regularization=0.1,
-        shuffle_batches=False, drop_batch_remainder=False, shuffle=True,
+        policy_lr=1e-5, value_lr=1e-5, entropy_regularization=0.1,
+        shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
         clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
 
     env_dict = define_env(town=None, debug=True,
@@ -294,7 +370,7 @@ def stage_s4(episodes: int, timesteps: int, town: str, save_every=None, seed=Non
         batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
         optimization_steps=(1, 1),
         advantage_scale=2.0,
-        policy_lr=3e-4, value_lr=3e-4, entropy_regularization=0.1,
+        policy_lr=1e-5, value_lr=1e-5, entropy_regularization=0.1,
         shuffle_batches=False, drop_batch_remainder=False, shuffle=True,
         clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
 

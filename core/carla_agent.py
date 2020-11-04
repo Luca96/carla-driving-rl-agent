@@ -60,7 +60,8 @@ class CARLAgent(PPOAgent):
 
     # TODO: experimental `eta` and `delta` coefficients for auxiliary losses
     def __init__(self, *args, aug_intensity=1.0, clip_norm=(1.0, 1.0, 1.0), name='carla', load_full=True, eta=0.0,
-                 dynamics_lr: Union[float, LearningRateSchedule] = 1e-3, update_dynamics=False, delta=0.0, **kwargs):
+                 dynamics_lr: Union[float, LearningRateSchedule] = 1e-3, update_dynamics=False, delta=0.0, aux=1.0,
+                 **kwargs):
         """
         :param aug_intensity: how much intense the augmentation should be.
         :param clip_norm: at which value the gradient's norm should be clipped.
@@ -70,6 +71,7 @@ class CARLAgent(PPOAgent):
         :param dynamics_lr: learning rate of the shared dynamics network.
         :param update_dynamics: whether or not to also update the shared network during a reinforcement learning update.
         :param delta: [experimental] scalar that penalizes the steering magnitude (see `policy_objective`)
+        :param aux: use to balance auxiliary losses (speed + similarity loss).
         """
         assert aug_intensity >= 0.0
 
@@ -89,8 +91,11 @@ class CARLAgent(PPOAgent):
         self.network: CARLANetwork = self.network
         self.aug_intensity = aug_intensity
 
-        self.delta = delta / self.batch_size
-        self.eta = eta / self.batch_size
+        # self.delta = delta / self.batch_size
+        # self.eta = eta / self.batch_size
+        self.delta = delta
+        self.eta = eta
+        self.aux = aux
 
         # gradient clipping:
         if isinstance(clip_norm, float):
@@ -287,7 +292,7 @@ class CARLAgent(PPOAgent):
                            clip_grad=1.0, optimizer='adam', save_every: Union[str, None] = 'end', epochs=1, seed=None,
                            validate_every=5, traces_dir='traces', shuffle_batches=False, shuffle_data=False,
                            accumulate_gradients=False, polyak=0.99):
-        """Imitation leaning phase
+        """Imitation leaning phase (with balanced-action batches)
         :param num_traces: number of traces to consider for each learning epoch.
         :param batch_size: dimension of the batch in terms of timesteps (i.e. single states)
         :param shuffle_traces: whether or not to shuffle the traces before loading them.
@@ -320,50 +325,48 @@ class CARLAgent(PPOAgent):
             lr = ParameterWrapper(lr)
 
         optimizer = utils.get_optimizer_by_name(optimizer, learning_rate=lr)
+        traces_count = utils.count_traces(traces_dir)
 
         for e in range(epochs):
-            for i, trace in enumerate(utils.load_traces(traces_dir, num_traces, shuffle=shuffle_traces)):
+            offset = 0
+
+            while offset < traces_count:
+                data, offset = self.imitation_prepare_data(batch_size, traces_dir, num_traces,
+                                                           shuffle=shuffle_traces, offset=offset)
                 preprocess_fn = self.augment()
                 t0 = time.time()
 
-                # load trace:
-                trace = utils.unpack_trace(trace, unpack=False)
-                states, actions = trace['state'], trace['action']
-                rewards = utils.to_float(trace['reward'])
-                speed = utils.to_tensor(trace['info_speed'], expand_axis=-1)
-                similarity = utils.to_tensor(trace['info_similarity'], expand_axis=-1)
+                states, actions, rewards = data['state'], data['action'], data['reward']
+                states: dict
 
-                # compute normalized returns
-                returns = utils.rewards_to_go(rewards, discount=self.gamma)
-                returns_base, returns_exp = tf.map_fn(fn=utils.decompose_number, elems=utils.to_float(returns),
-                                                      dtype=(tf.float32, tf.float32))
+                # remove speed and similarity from `states`
+                speed = states.pop('speed') / 100.0
+                similarity = states.pop('similarity')
+
+                # also remove returns (base and exp) and use them to compute values
+                returns_base = states.pop('returns_base')
+                returns_exp = states.pop('returns_exp')
+                states['value'] = tf.stack([returns_base, returns_exp], axis=1)
 
                 if self.distribution_type == 'categorical':
                     states['action'] = self.convert_actions(actions)  # fix: data is collected in continuous space
                 else:
                     states['action'] = actions
 
-                states: dict
-                states['value'] = tf.stack([returns_base, returns_exp], axis=1)
-                states['reward'] = rewards[:-1]
-                states['state_command'] = self.convert_command(states['state_command'])
+                states['reward'] = rewards
+                aug_states = self.map_states(preprocess_fn, states)
 
-                states = self.map_states(preprocess_fn, states)
-
-                self.log(rewards=rewards, values_true_imitation=states['value'], lr_imitation=lr.value, returns=returns,
+                self.log(rewards=rewards, values_true_imitation=states['value'], lr_imitation=lr.value,
+                         returns=returns_base * tf.pow(10, returns_exp),
                          returns_base=returns_base, returns_exp=returns_exp, speed=speed, similarity=similarity)
                 self.log_actions(actions_imitation=actions, actions_true_imitation=states['action'],
                                  command=states['state_command'])
 
-                # augment similarity and speed:
-                similarity -= tf.random.uniform(similarity.shape, minval=0.0, maxval=0.1)
-                speed = (speed + tf.random.uniform(speed.shape, minval=0.0, maxval=5.0)) / 100.0
-
                 # data = states
-                data = (states, speed, similarity)
+                data = (states, aug_states, speed, similarity)
 
                 # validation and training:
-                if (i + 1) % validate_every == 0:
+                if (offset + 1) % validate_every == 0:
                     self.imitation_validation(data=data, batch_size=batch_size, seed=seed, alpha=alpha, beta=beta,
                                               shuffle_batches=shuffle_batches, shuffle_data=shuffle_data)
 
@@ -371,12 +374,100 @@ class CARLAgent(PPOAgent):
                                       clip_grad=clip_grad, optimizer=optimizer, shuffle_batches=shuffle_batches,
                                       shuffle_data=shuffle_data, accumulate_gradients=accumulate_gradients, seed=seed)
                 self.write_summaries()
-                print(f'[{e + 1}/{i + 1}] Episode took {round(time.time() - t0, 3)}s.')
+                print(f'[{e + 1}/{offset + 1}] Episode took {round(time.time() - t0, 3)}s.')
 
             lr.on_episode()
 
             if save_every == 'end':
                 self.save()
+
+    def imitation_prepare_data(self, batch_size: int, traces_dir: str, num_traces: int, shuffle=False,
+                               offset=0) -> (dict, int):
+        """Loads data from traces, and builds a batch with balanced actions (e.g. same amount of left and right
+           steering etc.)
+        """
+        def filter_throttle(s, a, r):
+            mask = a[:, 0] >= 0.0
+
+            s = {k: utils.to_float(v)[mask] for k, v in s.items()}
+
+            return s, a[mask], r[tf.concat([mask, [True]], axis=0)]
+
+        def shuffle_trace(s: dict, a, r):
+            indices = tf.range(start=0, limit=tf.shape(a)[0], dtype=tf.int32)
+            indices = tf.random.shuffle(indices)
+
+            for k, v in s.items():
+                s[k] = tf.gather(v, indices)
+
+            a = tf.gather(a, indices)
+            r = tf.gather(r, tf.concat([indices, [tf.shape(r)[0] - 1]], axis=0))
+
+            return s, a, r
+
+        def mask_reward(r, mask):
+            return r[tf.concat([mask, [True]], axis=0)]
+
+        def filter_steering(s, a, r, t=0.1):
+            masks = dict(left=a[:, 1] <= -t,
+                         right=a[:, 1] >= t,
+                         center=(a[:, 1] > -t) & (a[:, 1] < t))
+
+            filtered_data = []
+
+            for k in ['left', 'center', 'right']:
+                mask = masks[k]
+                taken = int(min(amounts[k], tf.reduce_sum(tf.cast(mask, tf.int32))))
+                amounts[k] -= taken
+
+                filtered_data.append(dict(state={k: v[mask][:taken] for k, v in s.items()},
+                                          action=a[mask][:taken],
+                                          reward=mask_reward(r, mask)[:taken]))
+            return filtered_data
+
+        amounts = dict(left=batch_size, right=batch_size, center=batch_size)
+        data = None
+        k = offset
+
+        while sum(map(lambda k_: amounts[k_], amounts)) > 0:
+            for j, trace in enumerate(utils.load_traces(traces_dir, max_amount=num_traces, shuffle=shuffle,
+                                                        offset=0 if self.seed is None else offset)):
+                k += 1
+                trace = utils.unpack_trace(trace, unpack=False)
+
+                states, actions = trace['state'], utils.to_float(trace['action'])
+                rewards = utils.to_float(trace['reward'])
+                states['speed'] = utils.to_tensor(trace['info_speed'], expand_axis=-1)
+                states['similarity'] = utils.to_tensor(trace['info_similarity'], expand_axis=-1)
+                states['state_command'] = self.convert_command(states['state_command'])
+
+                # compute (decomposed) returns
+                returns = utils.rewards_to_go(rewards, discount=self.gamma)
+                states: dict
+                states['returns_base'], \
+                states['returns_exp'] = tf.map_fn(fn=utils.decompose_number, elems=utils.to_float(returns),
+                                                  dtype=(tf.float32, tf.float32))
+
+                states, actions, rewards = filter_throttle(states, actions, rewards)
+                states, actions, rewards = shuffle_trace(states, actions, rewards)
+                f_data = filter_steering(states, actions, rewards)
+
+                if data is None:
+                    data = f_data
+                else:
+                    for i, d in enumerate(f_data):
+                        # for i in left, center, right...
+                        data[i]['state'] = utils.concat_dict_tensor(data[i]['state'], d['state'])
+                        data[i]['action'] = tf.concat([data[i]['action'], d['action']], axis=0)
+                        data[i]['reward'] = tf.concat([data[i]['reward'], d['reward']], axis=0)
+
+                if sum(map(lambda k_: amounts[k_], amounts)) <= 0:
+                    break
+
+        # concat left, center, and right parts together
+        return dict(state=utils.concat_dict_tensor(*list(d['state'] for d in data)),
+                    action=tf.concat(list(d['action'] for d in data), axis=0),
+                    reward=tf.concat(list(d['reward'] for d in data), axis=0)), k
 
     # TODO: rename
     def log_actions(self, **kwargs):
@@ -476,53 +567,74 @@ class CARLAgent(PPOAgent):
         print(f'[Imitation] validation took {round(time.time() - t0, 3)}s.')
 
     def imitation_objective(self, batch, validation=False):
-        states, speed, similarity = batch
+        """Imitation learning objective with `concordance loss` (i.e. a loss that encourages the network to make
+           consistent predictions among augmented and non-augmented batches of data)
+        """
+        states, aug_states, speed, similarity = batch
 
-        policy, value = self.network.imitation_predict(states)
-        actions = utils.to_float(policy['actions'])
         true_actions = utils.to_float(states['action'])
-        values = value['value']
+        true_values = states['value']
 
-        pi_speed, pi_similarity = policy['speed'], policy['similarity']
-        v_speed, v_similarity = value['speed'], value['similarity']
+        # prediction on NON-augmented and AUGMENTED states
+        policy, value = self.network.imitation_predict(states)
+        policy_aug, value_aug = self.network.imitation_predict(aug_states)
+
+        # actions, values, speed, and similarities
+        actions, actions_aug = utils.to_float(policy['actions']), utils.to_float(policy_aug['actions'])
+        values, values_aug = value['value'], value_aug['value']
+        pi_speed, pi_speed_aug = policy['speed'], policy_aug['speed']
+        v_speed, v_speed_aug = value['speed'], value_aug['speed']
+        pi_similarity, pi_similarity_aug = policy['similarity'], policy_aug['similarity']
+        v_similarity, v_similarity_aug = value['similarity'], value_aug['similarity']
 
         if not validation:
-            self.log_actions(actions_pred_imitation=actions)
-            self.log(values_pred_imitation=values, speed_pi=pi_speed, speed_v=v_speed, similarity_pi=pi_similarity,
-                     similarity_v=v_similarity)
+            self.log_actions(actions_pred_imitation=actions, actions_pred_aug_imitation=actions_aug)
+            self.log(values_pred_imitation=values, values_pred_aug_imitation=values_aug,
+                     speed_pi=pi_speed, speed_pi_aug=pi_speed_aug, speed_v=v_speed, speed_v_aug=v_speed_aug,
+                     similarity_pi=pi_similarity, similarity_pi_aug=pi_similarity_aug,
+                     similarity_v=v_similarity, similarity_v_aug=v_similarity_aug)
 
         # loss policy = sum of per-action MAE error
-        loss_policy = tf.reduce_mean(tf.reduce_sum(tf.abs(true_actions - actions), axis=1))
-        loss_value = 0.5 * tf.reduce_mean(losses.MSE(y_true=states['value'], y_pred=values))
+        loss_policy = (tf.reduce_mean(tf.reduce_sum(tf.abs(true_actions - actions), axis=1)) +
+                       tf.reduce_mean(tf.reduce_sum(tf.abs(true_actions - actions_aug), axis=1))) / 2.0
 
-        loss_speed_policy = 0.5 * tf.reduce_mean(losses.MSE(y_true=speed, y_pred=pi_speed))
-        loss_speed_value = 0.5 * tf.reduce_mean(losses.MSE(y_true=speed, y_pred=v_speed))
+        loss_value = (tf.reduce_mean(losses.MSE(y_true=true_values, y_pred=values)) +
+                      tf.reduce_mean(losses.MSE(y_true=true_values, y_pred=values_aug))) / 2.0
 
-        loss_similarity_policy = 0.5 * tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=pi_similarity))
-        loss_similarity_value = 0.5 * tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=v_similarity))
+        loss_speed_policy = (tf.reduce_mean(losses.MSE(y_true=speed, y_pred=pi_speed)) +
+                             tf.reduce_mean(losses.MSE(y_true=speed, y_pred=pi_speed_aug))) / 2.0
+        loss_speed_value = (tf.reduce_mean(losses.MSE(y_true=speed, y_pred=v_speed)) +
+                            tf.reduce_mean(losses.MSE(y_true=speed, y_pred=v_speed_aug))) / 2.0
 
-        total_loss_policy = loss_policy + loss_speed_policy + loss_similarity_policy
-        total_loss_value = loss_value + loss_speed_value + loss_similarity_value
+        loss_similarity_policy = (tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=pi_similarity)) +
+                                  tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=pi_similarity_aug))) / 2.0
+        loss_similarity_value = (tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=v_similarity)) +
+                                 tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=v_similarity_aug))) / 2.0
 
-        # penalize the magnitude of steering angle
-        steer_angle = actions[:, 1]
-        steer_penalty = self.delta * tf.reduce_sum(tf.square(steer_angle))
+        # concordance loss: make both prediction be close as possible
+        concordance_policy = (tf.reduce_mean(losses.MSE(actions, actions_aug)) +
+                              tf.reduce_mean(losses.MSE(pi_speed, pi_speed_aug)) +
+                              tf.reduce_mean(losses.MSE(pi_similarity, pi_similarity_aug))) / 3.0
 
-        # encourage to accelerate
-        throttle = actions[:, 0]
-        throttle = tf.where(throttle > 0.0, throttle, 0.0)
-        throttle_penalty = self.eta * tf.reduce_sum(tf.square(1.0 - throttle))
+        concordance_value = (tf.reduce_mean(losses.MSE(values, values_aug)) +
+                             tf.reduce_mean(losses.MSE(v_speed, v_speed_aug)) +
+                             tf.reduce_mean(losses.MSE(v_similarity, v_similarity_aug))) / 3.0
 
-        # Entropy regularization
-        entropy_penalty = self.entropy_strength() * policy['entropy']
+        # total loss
+        total_loss_policy = \
+            loss_policy + self.aux * (loss_speed_policy + loss_similarity_policy) + self.delta * concordance_policy
+        total_loss_value = \
+            loss_value + self.aux * (loss_speed_value + loss_similarity_value) + self.eta * concordance_value
 
         if not validation:
             self.log(loss_policy=loss_policy, loss_value=loss_value, loss_speed_policy=loss_speed_policy,
                      loss_similarity_policy=loss_similarity_policy, loss_speed_value=loss_speed_value,
-                     loss_similarity_value=loss_similarity_value, loss_steer=steer_penalty,
-                     loss_throttle=throttle_penalty, loss_entropy=entropy_penalty)
+                     loss_similarity_value=loss_similarity_value,
+                     loss_concordance_policy=concordance_policy, loss_concordance_value=concordance_value,
+                     # loss_steer=steer_penalty, loss_throttle=throttle_penalty, loss_entropy=entropy_penalty
+            )
 
-        return total_loss_policy + steer_penalty + throttle_penalty - entropy_penalty, total_loss_value
+        return total_loss_policy, total_loss_value
 
     def preprocess(self):
         """Augmentation function used during the reinforcement learning phase"""
@@ -574,6 +686,10 @@ class CARLAgent(PPOAgent):
                 # cutout
                 if aug.tf_chance(seed=seed) < 0.15 * alpha:
                     image = aug.tf_cutout(image, size=6, seed=seed)
+
+                # coarse dropout
+                if aug.tf_chance(seed=seed) < 0.15 * alpha:
+                    image = aug.tf_coarse_dropout(image, size=36, seed=seed)
 
             state['state_image'] = image
             return state
