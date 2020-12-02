@@ -201,11 +201,12 @@ def collect_experience(episodes: int, timesteps: int, threshold=0.0, env_class=C
 
 
 def imitation_learning(batch_size=64, lr=1e-3, alpha=0.5, beta=0.5, clip=1.0, epochs=1, load=False,
-                       name='imitation', polyak=0.99, **kwargs):
+                       name='imitation', polyak=0.99, time_horizon=1, **kwargs):
     """Performs imitation learning on the already recorded experience traces (given by `name` argument).
         - refer to CARLAgent.imitation_learning(...) for explained arguments.
     """
-    env = CARLAEnv(render=True, image_shape=(90, 120, 3), window_size=(720, 180), debug=False, range_controls={})
+    env = CARLAEnv(render=True, time_horizon=time_horizon, image_shape=(90, 120, 3), window_size=(720, 180),
+                   debug=False, range_controls={})
 
     agent = CARLAgent(env, batch_size=batch_size, name=name, consider_obs_every=1, load=load,
                       drop_batch_remainder=False)
@@ -295,21 +296,31 @@ def explore_traces(traces_dir: str, amount=64, seed=None):
 # -- Curriculum (stages definition)
 # -------------------------------------------------------------------------------------------------
 
-def stage_s1(episodes: int, timesteps: int, save_every=None, seed=42, stage_name='stage-s1', **kwargs):
+def stage_s1(episodes: int, timesteps: int, batch_size: int, save_every=None, seed=42, stage_name='stage-s1', **kwargs):
     """Stage-1: origins (n=10) fixed by seed. Town-3, reverse gear disabled, steering within (-0.3, +0.3).
                 No dynamic objects."""
+    policy_lr = kwargs.pop('policy_lr', 3e-4)
+    value_lr = kwargs.pop('value_lr', 3e-4)
+    clip_ratio = kwargs.pop('clip_ratio', 0.2)
+    entropy = kwargs.pop('entropy_regularization', 0.1)
+    dynamics_lr = kwargs.pop('dynamics_lr', 3e-4)
+
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
-        optimization_steps=(1, 1),
+        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
+        optimization_steps=(2, 1),
         advantage_scale=2.0,
-        policy_lr=3e-4, value_lr=3e-4,
-        entropy_regularization=0.1, shuffle_batches=False, drop_batch_remainder=False, shuffle=True,
-        clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
+        policy_lr=policy_lr,
+        value_lr=value_lr,
+        dynamics_lr=dynamics_lr,
+        entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
+        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=1.0, update_dynamics=True)
 
     env_dict = define_env(town=None, debug=True,
+                          image_shape=(90, 120, 3),
                           path=dict(origin=sample_origins(amount=10, seed=seed)),
-                          range_controls=dict(steer=(-0.3, 0.3)),
+                          throttle_as_desired_speed=True,
+                          range_controls=dict(steer=(-0.9, 0.9)),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 
@@ -318,21 +329,28 @@ def stage_s1(episodes: int, timesteps: int, save_every=None, seed=42, stage_name
                                           save_every=save_every)))
 
 
-def stage_s2(episodes: int, timesteps: int, save_every=None, seed=None, stage_name='stage-s2', **kwargs):
+def stage_s2(episodes: int, timesteps: int, batch_size: int, save_every=None, seed=42, stage_name='stage-s2', **kwargs):
     """Stage-2: 50 random origins + 50 pedestrians"""
+    policy_lr = kwargs.pop('policy_lr', 3e-4)
+    value_lr = kwargs.pop('value_lr', 3e-4)
+    clip_ratio = kwargs.pop('clip_ratio', 0.2)
+    entropy = kwargs.pop('entropy_regularization', 0.1)
+    dynamics_lr = kwargs.pop('dynamics_lr', 3e-4)
+
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
-        optimization_steps=(1, 1),
+        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
         advantage_scale=2.0,
-        policy_lr=3e-5, value_lr=3e-5,
-        entropy_regularization=0.1, shuffle_batches=False, drop_batch_remainder=False, shuffle=True,
-        clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
+        policy_lr=policy_lr,
+        value_lr=value_lr,
+        dynamics_lr=dynamics_lr,
+        entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
+        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=0.5, update_dynamics=True)
 
-    env_dict = define_env(town=None, debug=True,
+    env_dict = define_env(town=None, debug=True, throttle_as_desired_speed=True,
+                          image_shape=(90, 120, 3),
                           path=dict(origin=sample_origins(amount=50, seed=seed)),
                           spawn=dict(vehicles=0, pedestrians=50),
-                          range_controls=dict(steer=(-0.3, 0.3)),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 

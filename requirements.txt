@@ -1,6 +1,6 @@
 numpy
-tensorflow
-tensorflow-probability
+tensorflow==2.2.0
+tensorflow-probability==0.10.1
 gym
 pygame
 opencv-python

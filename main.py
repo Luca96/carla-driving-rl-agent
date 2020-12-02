@@ -1,7 +1,10 @@
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
 import pygame
 import logging
 import tensorflow as tf
+tf.test.is_gpu_available()
 
 from core import learning
 
@@ -23,13 +26,14 @@ def collect_experience(timesteps=512, threshold=0.75, amount=25, name='imitation
 
 
 if __name__ == '__main__':
-    # ---- COLLECT EXPERIENCE (~300 traces)
-    collect_experience(amount=40, threshold=0.75, name='imitation', behaviour='normal')
-    collect_experience(amount=20, threshold=0.75, name='imitation', behaviour='aggressive')
+    # # ---- COLLECT EXPERIENCE (~300 traces)
+    # collect_experience(amount=40, threshold=0.75, name='imitation', behaviour='normal')
+    # collect_experience(amount=20, threshold=0.75, name='imitation', behaviour='aggressive')
 
     # -- IMITATION LEARNING (5 epochs)
     learning.imitation_learning(batch_size=64, lr=3e-4, seed=42, epochs=5,
-                                alpha=1.0, beta=1.0, clip=0.5, name='imitation')
+                                alpha=1.0, beta=1.0, clip=0.5, name='imitation-final')
+    exit()
 
     # CURRICULUM LEARNING:
     # -- STAGE-1 --
@@ -37,10 +41,23 @@ if __name__ == '__main__':
                       seed=42, polyak=0.999, aug_intensity=1.0, repeat_action=5, load_full=False)\
         .run2(epochs=10, epoch_offset=0)
 
+    # learning.stage_s1(episodes=5 * 8, timesteps=512*2, batch_size=256, gamma=0.999, lambda_=0.995, save_every='end',
+    #                   update_frequency=8, clip_ratio=0.1, policy_lr=3e-4, value_lr=3e-4,
+    #                   entropy_regularization=0.1,
+    #                   seed=42, polyak=0.999, aug_intensity=0.0, repeat_action=1, load_full=True) \
+    #     .run2(epochs=10, epoch_offset=40)
+
     # -- STAGE-2 --
     learning.stage_s2(episodes=5, timesteps=64 * 3, gamma=0.999, lambda_=0.995, save_every='end',
                       seed=42, polyak=0.999, aug_intensity=1.0, repeat_action=4, load_full=True) \
         .run2(epochs=10, epoch_offset=0)
+
+    # learning.stage_s2(episodes=5 * 16, timesteps=512, batch_size=256, gamma=0.999, lambda_=0.995, save_every='end',
+    #                   update_frequency=16, clip_ratio=0.1, policy_lr=3e-4, value_lr=3e-4,
+    #                   entropy_regularization=0.1,
+    #                   seed=42, polyak=0.999, aug_intensity=0.0, repeat_action=1, load_full=True) \
+    #     .run2(epochs=30, epoch_offset=0)
+    # exit()
 
     # -- STAGE-3 --
     learning.stage_s3(episodes=5, timesteps=64 * 3, gamma=0.999, lambda_=0.995, save_every='end',

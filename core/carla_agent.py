@@ -13,8 +13,9 @@ from tensorflow.keras import losses
 from rl import utils
 from rl import augmentations as aug
 from rl.agents import PPOAgent
+from rl.agents.ppo import PPOMemory
 from rl.environments import ThreeCameraCARLAEnvironmentDiscrete
-from rl.parameters import ConstantParameter, ParameterWrapper
+from rl.parameters import DynamicParameter
 
 from core.networks import CARLANetwork
 
@@ -50,17 +51,25 @@ class CARLAgent(PPOAgent):
     # Default neural network architecture
     DEFAULT_CONTROL = dict(units=256, num_layers=2, activation=utils.swish6)
     DEFAULT_CONTROL_VALUE = dict(units=256, num_layers=2, activation=utils.swish6)
+    # DEFAULT_DYNAMICS = dict(road=dict(units=32, normalization=None),
+    #                         vehicle=dict(units=32, num_layers=2),
+    #                         command=dict(units=16, normalization=None),
+    #                         control=dict(units=16, num_layers=2),
+    #                         shufflenet=dict(linear_units=0, g=1.0, last_channels=800),
+    #                         agent=dict(units=16, num_layers=2),
+    #                         image=dict(units=224))
     DEFAULT_DYNAMICS = dict(road=dict(units=32, normalization=None),
                             vehicle=dict(units=32, num_layers=2),
                             command=dict(units=16, normalization=None),
                             control=dict(units=16, num_layers=2),
-                            shufflenet=dict(linear_units=0, g=1.0, last_channels=800),
-                            agent=dict(units=16, num_layers=2),
-                            image=dict(units=224))
+                            shufflenet=dict(g=1.0, last_channels=800),
+                            agent=dict(units=16),
+                            rnn=dict(image=224, road=32, vehicle=32, control=16, command=16),
+                            dynamics=dict(units=512))
 
     # TODO: experimental `eta` and `delta` coefficients for auxiliary losses
     def __init__(self, *args, aug_intensity=1.0, clip_norm=(1.0, 1.0, 1.0), name='carla', load_full=True, eta=0.0,
-                 dynamics_lr: Union[float, LearningRateSchedule] = 1e-3, update_dynamics=False, delta=0.0, aux=1.0,
+                 dynamics_lr: Union[float, LearningRateSchedule] = 1e-3, update_dynamics=True, delta=0.0, aux=1.0,
                  **kwargs):
         """
         :param aug_intensity: how much intense the augmentation should be.
@@ -81,8 +90,8 @@ class CARLAgent(PPOAgent):
         network_spec.setdefault('control_policy', self.DEFAULT_CONTROL)
         network_spec.setdefault('control_value', self.DEFAULT_CONTROL_VALUE)
         network_spec.setdefault('dynamics', self.DEFAULT_DYNAMICS)
-        network_spec.setdefault('update_dynamics', update_dynamics)
 
+        self.should_update_dynamics = update_dynamics
         self.dynamics_path = os.path.join(kwargs.get('weights_dir', 'weights'), name, 'dynamics_model')
         self.load_full = load_full
 
@@ -109,7 +118,7 @@ class CARLAgent(PPOAgent):
             self.should_clip_dynamics_grads = False
 
         # optimizer
-        self.dynamics_lr = super()._init_lr_schedule(lr=dynamics_lr)
+        self.dynamics_lr = DynamicParameter.create(value=dynamics_lr)
         self.dynamics_lr.load(config=self.config.get('dynamics_lr', {}))
 
         self.dynamics_optimizer = utils.get_optimizer_by_name(name=kwargs.get('optimizer', 'adam'),
@@ -120,6 +129,24 @@ class CARLAgent(PPOAgent):
             state[k] = v
 
         return self.network.act(state)
+
+    def update(self):
+        if len(self.memory) < self.batch_size:
+            print('[Not updated] memory too small!')
+            self.env.reset_info()
+            return
+
+        super().update()
+
+        try:
+            actions = self.memory.actions
+            actions = (actions - 1.0) * 2.0 + 1.0
+            self.log(action_throttle_or_brake=actions[:, 0], action_steer=actions[:, 1])
+
+        except Exception:
+            print('[update] unable to print actions')
+
+        self.env.reset_info()
 
     def evaluate(self, episodes: int, timesteps: int, render=True, seeds=None) -> list:
         rewards = []
@@ -200,17 +227,49 @@ class CARLAgent(PPOAgent):
             similarity = similarity[:returns.shape[0]]
         else:
             n = returns.shape[0] - speed.shape[0]
-            speed = tf.concat([speed, tf.zeros((n, 1))], axis=1)
-            similarity = tf.concat([similarity, tf.zeros((n, 1))], axis=1)
+            speed = tf.concat([speed, tf.zeros((n, 1))], axis=0)
+            similarity = tf.concat([similarity, tf.zeros((n, 1))], axis=0)
 
         return states, returns, speed, similarity
 
     def get_policy_gradients(self, batch):
         states, advantages, log_probabilities, speed, similarity = batch
-        dynamics_out = self.network.dynamics_predict_train(states)
-        new_batch = (dynamics_out, advantages, log_probabilities, speed, similarity)
 
-        return super().get_policy_gradients(batch=new_batch)
+        if self.should_update_dynamics:
+            with tf.GradientTape(persistent=True) as tape:
+                # dynamics prediction
+                dynamics_out = self.network.dynamics_predict_train(states)
+                new_batch = (dynamics_out, advantages, log_probabilities, speed, similarity)
+
+                # policy prediction
+                loss = self.policy_objective(batch=new_batch)
+
+            # get gradients with respect to policy, and dynamics
+            policy_gradients = tape.gradient(loss, self.network.policy.trainable_variables)
+            dynamics_gradients = tape.gradient(loss, self.network.dynamics.trainable_variables)
+
+            del tape
+            return loss, dict(policy=policy_gradients, dynamics=dynamics_gradients)
+        else:
+            dynamics_out = self.network.dynamics_predict_train(states)
+            new_batch = (dynamics_out, advantages, log_probabilities, speed, similarity)
+
+            return super().get_policy_gradients(batch=new_batch)
+
+    def apply_policy_gradients(self, gradients):
+        if isinstance(dict, gradients):
+            assert self.should_update_dynamics
+
+            grads = self.apply_dynamics_gradients(gradients=gradients['dynamics'])
+            super().apply_policy_gradients(gradients=gradients['policy'])
+
+            self.log(gradients_norm_dynamics=[tf.norm(g) for g in grads])
+        else:
+            super().apply_policy_gradients(gradients)
+
+    def apply_dynamics_gradients(self, gradients):
+        self.dynamics_optimizer.apply_gradients(zip(gradients, self.network.dynamics.trainable_variables))
+        return gradients
 
     def policy_objective(self, batch):
         states, advantages, old_log_prob, true_speed, true_similarity = batch
@@ -239,29 +298,48 @@ class CARLAgent(PPOAgent):
         policy_loss = -tf.reduce_mean(tf.minimum(ratio * advantages, min_adv))
         total_loss = policy_loss - entropy_penalty + speed_loss + similarity_loss
 
-        # penalize the magnitude of steering angle
-        steer_angle = states['action'][:, 1]
-        steer_penalty = self.delta * tf.reduce_sum(tf.square(steer_angle))
-
-        # encourage to accelerate
-        throttle = states['action'][:, 0]
-        throttle = tf.where(throttle > 0.0, throttle, 0.0)
-        throttle_penalty = self.eta * tf.reduce_sum(tf.square(1.0 - throttle))
-
         # Log stuff
         self.log(ratio=tf.reduce_mean(ratio), log_prob=tf.reduce_mean(log_prob), entropy=entropy,
                  entropy_coeff=self.entropy_strength.value, ratio_clip=clip_value, loss_speed_policy=speed_loss,
                  loss_policy=policy_loss, loss_entropy=entropy_penalty, speed_pi=tf.reduce_mean(speed),
-                 loss_similarity_policy=similarity_loss, similarity_pi=tf.reduce_mean(similarity),
-                 loss_steer=steer_penalty, loss_throttle=throttle_penalty)
+                 loss_similarity_policy=similarity_loss, similarity_pi=tf.reduce_mean(similarity))
 
-        return total_loss + steer_penalty + throttle_penalty, 0.0
+        return total_loss
 
     def get_value_gradients(self, batch):
         states, returns, speed, similarity = batch
-        dynamics_out = self.network.dynamics_predict_train(states)
 
-        return super().get_value_gradients(batch=(dynamics_out, returns, speed, similarity))
+        if self.should_update_dynamics:
+            with tf.GradientTape(persistent=True) as tape:
+                # dynamics prediction
+                dynamics_out = self.network.dynamics_predict_train(states)
+                new_batch = (dynamics_out, returns, speed, similarity)
+
+                # value prediction
+                loss = self.value_objective(batch=new_batch)
+
+            # get gradients with respect to value, and dynamics
+            value_gradients = tape.gradient(loss, self.network.value.trainable_variables)
+            dynamics_gradients = tape.gradient(loss, self.network.dynamics.trainable_variables)
+
+            del tape
+            return loss, dict(value=value_gradients, dynamics=dynamics_gradients)
+        else:
+            dynamics_out = self.network.dynamics_predict_train(states)
+            new_batch = (dynamics_out, returns, speed, similarity)
+
+            return super().get_value_gradients(batch=new_batch)
+
+    def apply_value_gradients(self, gradients):
+        if isinstance(dict, gradients):
+            assert self.should_update_dynamics
+
+            grads = self.apply_dynamics_gradients(gradients=gradients['dynamics'])
+            super().apply_value_gradients(gradients=gradients['value'])
+
+            self.log(gradients_norm_dynamics_v=[tf.norm(g) for g in grads])
+        else:
+            super().apply_value_gradients(gradients)
 
     @tf.function
     def value_predict(self, inputs: dict) -> dict:
@@ -272,21 +350,19 @@ class CARLAgent(PPOAgent):
         prediction = self.value_predict(states)
         values, speed, similarity = prediction['value'], prediction['speed'], prediction['similarity']
 
-        value_loss = 0.5 * tf.reduce_mean(losses.MSE(y_true=returns, y_pred=values))
-        speed_loss = 0.5 * tf.reduce_mean(losses.MSE(y_true=true_speed, y_pred=speed))
-        similarity_loss = 0.5 * tf.reduce_mean(losses.MSE(y_true=true_similarity, y_pred=similarity))
+        # compute normalized `value loss`:
+        base_loss = tf.reduce_mean(losses.MSE(y_true=returns[:, 0], y_pred=values[:, 0]))
+        exp_loss = tf.reduce_mean(losses.MSE(y_true=returns[:, 1], y_pred=values[:, 1]))
+        value_loss = (0.25 * base_loss) + (exp_loss / (self.network.exp_scale ** 2))
+
+        # auxiliary losses:
+        speed_loss = tf.reduce_mean(losses.MSE(y_true=true_speed, y_pred=speed))
+        similarity_loss = tf.reduce_mean(losses.MSE(y_true=true_similarity, y_pred=similarity))
 
         self.log(speed_v=tf.reduce_mean(speed), similarity_v=tf.reduce_mean(similarity),
                  loss_v=value_loss, loss_speed_value=speed_loss, loss_similarity_value=similarity_loss)
 
-        return value_loss + speed_loss + similarity_loss
-
-    def get_value_batches(self):
-        """Computes batches of data for updating the value network"""
-        return utils.data_to_batches(tensors=self.value_batch_tensors(), batch_size=self.batch_size,
-                                     drop_remainder=self.drop_batch_remainder, skip=self.skip_count,
-                                     shuffle=self.shuffle, shuffle_batches=self.shuffle_batches,
-                                     num_shards=self.obs_skipping)
+        return (value_loss + speed_loss + similarity_loss) * 0.25
 
     def imitation_learning(self, num_traces=np.inf, batch_size=None, shuffle_traces=True, alpha=1.0, beta=1.0, lr=1e-3,
                            clip_grad=1.0, optimizer='adam', save_every: Union[str, None] = 'end', epochs=1, seed=None,
@@ -319,11 +395,7 @@ class CARLAgent(PPOAgent):
         self.set_random_seed(seed)
         self.network.imitation_model()
 
-        if isinstance(lr, float):
-            lr = ConstantParameter(lr)
-        elif isinstance(lr, LearningRateSchedule):
-            lr = ParameterWrapper(lr)
-
+        lr = DynamicParameter.create(value=lr)
         optimizer = utils.get_optimizer_by_name(optimizer, learning_rate=lr)
         traces_count = utils.count_traces(traces_dir)
 
@@ -636,25 +708,13 @@ class CARLAgent(PPOAgent):
 
         return total_loss_policy, total_loss_value
 
+    def get_memory(self):
+        return CARLAMemory(state_spec=self.state_spec, num_actions=self.num_actions,
+                           time_horizon=self.env.time_horizon)
+
     def preprocess(self):
         """Augmentation function used during the reinforcement learning phase"""
-        alpha = self.aug_intensity
-        seed = self.seed
-
-        @tf.function
-        def augment_fn(state):
-            state = state.copy()
-            image = utils.to_float(state['state_image'])
-
-            if alpha > 0:
-                # Color distortion
-                image = aug.simclr.color_distortion(image, strength=alpha, seed=seed)
-                image = aug.tf_normalize(image)
-
-            state['state_image'] = image
-            return state
-
-        return augment_fn
+        return self.augment()
 
     def augment(self):
         """Augmentation function used during the imitation learning phase"""
@@ -699,3 +759,18 @@ class CARLAgent(PPOAgent):
     def load_weights(self):
         print('loading weights...')
         self.network.load_weights(full=self.load_full)
+
+
+class CARLAMemory(PPOMemory):
+    def __init__(self, state_spec: dict, num_actions: int, time_horizon: int):
+        super().__init__(state_spec, num_actions)
+        self.time_horizon = time_horizon
+
+        # consider `time_horizon` for states:
+        if self.simple_state:
+            self.states = tf.zeros(shape=(0, self.time_horizon) + state_spec.get('state'), dtype=tf.float32)
+        else:
+            for name, shape in state_spec.items():
+                self.states[name] = tf.zeros(shape=(0, self.time_horizon) + shape, dtype=tf.float32)
+
+        # TODO: do the same for actions?

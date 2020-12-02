@@ -7,7 +7,7 @@ from rl import utils
 from rl.environments import ThreeCameraCARLAEnvironment, CARLAEvent
 from rl.environments.carla.tools import utils as carla_utils
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Union
 
 
 class CARLAEnv(ThreeCameraCARLAEnvironment):
@@ -18,6 +18,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
     COMMAND_SPACE = spaces.Box(low=0.0, high=1.0, shape=(3,))
 
     def __init__(self, *args, stack_depth=False, collision_penalty=1000.0, info_every=1, add_throttle=0.0,
+                 time_horizon=1, past_obs_freq=1, throttle_as_desired_speed=False,
                  range_controls: Optional[Dict[str, Tuple[float, float]]] = None, **kwargs):
         """
         :param stack_depth: if true the depth-image from the depth camera sensor will be stacked along the channel
@@ -26,8 +27,12 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         :param info_every: how frequently in terms of steps, the additional information should be gathered.
         :param add_throttle: fixed amount of `throttle` added to the vehicle control (i.e. added to `control.throttle`)
         :param range_controls: optional dict used to specify the range for each vehicle's control.
+        :param time_horizon: how much observations to consider as a single one (suitable for RNN processing)
+        :param past_obs_freq: how often (in terms of steps) to consider an observation as a past observation.
         """
         assert info_every >= 1
+        assert time_horizon >= 1
+        assert past_obs_freq >= 1
         image_shape = kwargs.pop('image_shape', (90, 120, 3))
 
         if stack_depth:
@@ -43,6 +48,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         self.waypoint_reward = 0.0
         self.info_every = info_every
         self.add_throttle = add_throttle
+        self.interpret_throttle_as_desired_speed = throttle_as_desired_speed
 
         # statistics
         self.episode = -1
@@ -51,6 +57,14 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
         self.range_controls = {} if range_controls is None else range_controls
         self.info_buffer = {k: [] for k in self.info_space.spaces.keys()}
+
+        # time horizon and past obs:
+        self.time_horizon = time_horizon
+        self.past_obs_freq = past_obs_freq
+
+        # init the past observations list with t empty (default) observations
+        # NOTE: the last obs is always the current (most recent) one
+        self.past_obs = self._init_past_obs()
 
     @property
     def info_space(self) -> spaces.Space:
@@ -64,11 +78,32 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         """Converts the given actions to vehicle's control"""
         super().actions_to_control(actions)
 
-        if carla_utils.speed(self.vehicle) < 10.0:
-            self.control.brake = 0.0
+        if self.interpret_throttle_as_desired_speed:
+            desired_speed = (float(actions[0]) + 1.0) / 2
+            desired_speed *= 100.0
+            current_speed = carla_utils.speed(self.vehicle)
 
-        if self.control.throttle > 0.001:
-            self.control.throttle = min(self.control.throttle + self.add_throttle, 1.0)
+            # print(f'[env] Desired speed: {round(desired_speed, 2)}, delta = {round(current_speed - desired_speed, 2)}.')
+
+            if current_speed == desired_speed:
+                self.control.throttle = 0.0
+                self.control.brake = 0.0
+
+            elif current_speed > desired_speed:
+                # brake
+                self.control.throttle = 0.0
+                self.control.brake = (current_speed - desired_speed) / 100.0
+            else:
+                # accelerate
+                self.control.brake = 0.0
+                self.control.throttle = (desired_speed - current_speed) / 100.0
+        else:
+            if carla_utils.speed(self.vehicle) < 10.0:
+                self.control.brake = 0.0
+
+            if self.control.throttle > 0.001:
+                self.control.throttle = min(self.control.throttle + self.add_throttle, 1.0)
+                # self.control.throttle = self.smooth_throttle()
 
         if 'throttle' in self.range_controls:
             throttle = self.range_controls['throttle']
@@ -82,7 +117,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
             steer = self.range_controls['steer']
             self.control.steer = utils.clip(self.control.steer, min_value=steer[0], max_value=steer[1])
 
-    def reward(self, *args, s=0.65, d=6.0, **kwargs) -> float:
+    def reward(self, *args, respect_speed_limit=False, **kwargs) -> float:
         """Reward function"""
         speed = carla_utils.speed(self.vehicle)
         dw = self.route.distance_to_next_waypoint()
@@ -91,21 +126,43 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
             self.should_terminate = True
             return -self.collision_penalty
 
-        if self.similarity <= s:
-            self.should_terminate = True
-            self.trigger_event(CARLAEvent.OUT_OF_LANE)
-            return -1.0
+        if respect_speed_limit:
+            speed_limit = self.vehicle.get_speed_limit()
 
-        if speed > self.vehicle.get_speed_limit() or dw > d:
-            return 0.0
+            if speed > speed_limit:
+                return speed_limit - speed
 
-        if speed < 1.0:
-            return -0.1 * self.similarity
+        r = speed * self.similarity
 
-        if 1.0 <= speed <= 2.5:
-            return 0.1 * self.similarity
+        if r != 0.0:
+            r /= max(1.0, (dw / 2.0)**2)
 
-        return self.similarity
+        return r
+
+    # def reward(self, *args, s=0.65, d=6.0, **kwargs) -> float:
+    #     """Reward function"""
+    #     speed = carla_utils.speed(self.vehicle)
+    #     dw = self.route.distance_to_next_waypoint()
+    #
+    #     if self.collision_penalty > 0.0:
+    #         self.should_terminate = True
+    #         return -self.collision_penalty
+    #
+    #     if self.similarity <= s:
+    #         self.should_terminate = True
+    #         self.trigger_event(CARLAEvent.OUT_OF_LANE)
+    #         return -1.0
+    #
+    #     if speed > self.vehicle.get_speed_limit() or dw > d:
+    #         return 0.0
+    #
+    #     if speed < 1.0:
+    #         return -0.1 * self.similarity
+    #
+    #     if 1.0 <= speed <= 2.5:
+    #         return 0.1 * self.similarity
+    #
+    #     return self.similarity
 
     # def reward(self, *args, s=0.65, d=4.0, **kwargs) -> float:
         # """Reward function"""
@@ -140,11 +197,16 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         self.episode += 1
         self.timestep = 0
         self.total_reward = 0.0
+        self.past_obs = self._init_past_obs()
 
-        for k in self.info_buffer.keys():
-            self.info_buffer[k].clear()
+        # for k in self.info_buffer.keys():
+        #     self.info_buffer[k].clear()
 
         return super().reset()
+
+    def reset_info(self):
+        for k in self.info_buffer.keys():
+            self.info_buffer[k].clear()
 
     def step(self, actions):
         """Performs one environment step (i.e. it updates the world, etc.)"""
@@ -211,10 +273,29 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         data['camera'] = np.concatenate((data['camera'], depth_image), axis=-1)
         return data
 
-    def get_observation(self, sensors_data: dict) -> dict:
+    def get_observation(self, sensors_data: dict) -> Union[list, dict]:
+        obs = self._get_observation(sensors_data)
+
+        # # backward compatibility:
+        # if self.time_horizon == 1:
+        #     return obs
+
+        # consider an observation (over time) only at certain timesteps
+        if self.timestep % self.past_obs_freq == 0:
+            # update past observation list:
+            self.past_obs.pop(index=0)  # remove the oldest (t=0)
+            self.past_obs.append(obs)  # append the newest
+
+        return self.past_obs.copy()
+
+    def _get_observation(self, sensors_data: dict) -> dict:
         obs = super().get_observation(sensors_data)
         obs['command'] = self.convert_command(obs['command'])
         return obs
+
+    def _init_past_obs(self) -> list:
+        """Returns a list of empty observations"""
+        return [self._get_observation(sensors_data={}) for _ in range(self.time_horizon)]
 
     def get_info(self) -> dict:
         info = super().get_info()
