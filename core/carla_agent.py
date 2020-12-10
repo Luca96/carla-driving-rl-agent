@@ -47,24 +47,18 @@ class FakeCARLAEnvironment(gym.Env):
 # -- Agent
 # -------------------------------------------------------------------------------------------------
 
+# TODO: changes
+#   - different network architecture
+# TODO: imitation learning broken!!
 class CARLAgent(PPOAgent):
     # Default neural network architecture
-    DEFAULT_CONTROL = dict(units=256, num_layers=2, activation=utils.swish6)
-    DEFAULT_CONTROL_VALUE = dict(units=256, num_layers=2, activation=utils.swish6)
-    # DEFAULT_DYNAMICS = dict(road=dict(units=32, normalization=None),
-    #                         vehicle=dict(units=32, num_layers=2),
-    #                         command=dict(units=16, normalization=None),
-    #                         control=dict(units=16, num_layers=2),
-    #                         shufflenet=dict(linear_units=0, g=1.0, last_channels=800),
-    #                         agent=dict(units=16, num_layers=2),
-    #                         image=dict(units=224))
-    DEFAULT_DYNAMICS = dict(road=dict(units=32, normalization=None),
-                            vehicle=dict(units=32, num_layers=2),
-                            command=dict(units=16, normalization=None),
-                            control=dict(units=16, num_layers=2),
-                            shufflenet=dict(g=1.0, last_channels=800),
-                            agent=dict(units=16),
-                            rnn=dict(image=224, road=32, vehicle=32, control=16, command=16),
+    DEFAULT_CONTROL = dict(units=256+64, num_layers=2, activation=utils.swish6)
+    DEFAULT_CONTROL_VALUE = dict(units=256+64, num_layers=2, activation=utils.swish6)
+    DEFAULT_DYNAMICS = dict(road=dict(units=16, num_layers=2, activation=tf.nn.relu6),
+                            vehicle=dict(units=16, num_layers=2, activation=tf.nn.relu6),
+                            navigation=dict(units=16, num_layers=2, activation=tf.nn.relu6),
+                            shufflenet=dict(g=1.0, last_channels=768),
+                            rnn=dict(image=256, road=32, vehicle=32, navigation=32),
                             dynamics=dict(units=512))
 
     # TODO: experimental `eta` and `delta` coefficients for auxiliary losses
@@ -203,8 +197,6 @@ class CARLAgent(PPOAgent):
     def policy_batch_tensors(self) -> Union[tuple, dict]:
         """Defines a batch of data for the policy network"""
         states, advantages, actions, log_probabilities = super().policy_batch_tensors()
-        states['value'] = self.memory.values[:-1]
-        states['reward'] = self.memory.rewards[:-1]
         states['action'] = actions
 
         speed = utils.to_tensor(self.env.info_buffer['speed'], expand_axis=-1) / 100.0
@@ -215,8 +207,6 @@ class CARLAgent(PPOAgent):
     def value_batch_tensors(self) -> Union[tuple, dict]:
         """Defines a batch of data for the value network"""
         states, returns = super().value_batch_tensors()
-        states['value'] = self.memory.values[:-1]
-        states['reward'] = self.memory.rewards[:-1]
         states['action'] = self.memory.actions
 
         speed = utils.to_tensor(self.env.info_buffer['speed'], expand_axis=-1) / 100.0
@@ -257,7 +247,7 @@ class CARLAgent(PPOAgent):
             return super().get_policy_gradients(batch=new_batch)
 
     def apply_policy_gradients(self, gradients):
-        if isinstance(dict, gradients):
+        if isinstance(gradients, dict):
             assert self.should_update_dynamics
 
             grads = self.apply_dynamics_gradients(gradients=gradients['dynamics'])
@@ -331,7 +321,7 @@ class CARLAgent(PPOAgent):
             return super().get_value_gradients(batch=new_batch)
 
     def apply_value_gradients(self, gradients):
-        if isinstance(dict, gradients):
+        if isinstance(gradients, dict):
             assert self.should_update_dynamics
 
             grads = self.apply_dynamics_gradients(gradients=gradients['dynamics'])
@@ -721,12 +711,25 @@ class CARLAgent(PPOAgent):
         alpha = self.aug_intensity
         seed = self.seed
 
-        @tf.function
-        def augment_fn(state):
-            state = state.copy()
+        def prepare(states: list) -> dict:
+            tmp = {k: [] for k in states[0].keys()}
+
+            for state in states:
+                for k, v in state.items():
+                    tmp[k].append(v)
+
+            for k, v in tmp.items():
+                tmp[k] = tf.stack(tf.cast(v, dtype=tf.float32), axis=0)
+
+            return {f'state_{k}': v for k, v in tmp.items()}
+
+        # @tf.function
+        def augment_fn(states: list):
+            state = prepare(states)
+            # state = state.copy()
             image = utils.to_float(state['state_image'])
 
-            if alpha > 0:
+            if alpha > 0.0:
                 # Color distortion
                 image = aug.simclr.color_distortion(image, strength=alpha, seed=seed)
 
@@ -754,6 +757,9 @@ class CARLAgent(PPOAgent):
             state['state_image'] = image
             return state
 
+        # def apply_augmentations(states):
+        #     return [augment_fn(state) for state in states]
+
         return augment_fn
 
     def load_weights(self):
@@ -772,5 +778,3 @@ class CARLAMemory(PPOMemory):
         else:
             for name, shape in state_spec.items():
                 self.states[name] = tf.zeros(shape=(0, self.time_horizon) + shape, dtype=tf.float32)
-
-        # TODO: do the same for actions?

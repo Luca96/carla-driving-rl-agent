@@ -1,6 +1,7 @@
 numpy
 tensorflow==2.2.0
 tensorflow-probability==0.10.1
+tensorboard-plugin-profile==2.2.0
 gym
 pygame
 opencv-python

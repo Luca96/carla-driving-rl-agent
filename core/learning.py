@@ -297,7 +297,7 @@ def explore_traces(traces_dir: str, amount=64, seed=None):
 # -------------------------------------------------------------------------------------------------
 
 def stage_s1(episodes: int, timesteps: int, batch_size: int, save_every=None, seed=42, stage_name='stage-s1', **kwargs):
-    """Stage-1: origins (n=10) fixed by seed. Town-3, reverse gear disabled, steering within (-0.3, +0.3).
+    """Stage-1: origins (n=10) fixed by seed. Town-3, reverse gear disabled
                 No dynamic objects."""
     policy_lr = kwargs.pop('policy_lr', 3e-4)
     value_lr = kwargs.pop('value_lr', 3e-4)
@@ -307,8 +307,7 @@ def stage_s1(episodes: int, timesteps: int, batch_size: int, save_every=None, se
 
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
-        optimization_steps=(2, 1),
+        batch_size=batch_size, name=stage_name, traces_dir=None, seed=seed,
         advantage_scale=2.0,
         policy_lr=policy_lr,
         value_lr=value_lr,
@@ -320,7 +319,7 @@ def stage_s1(episodes: int, timesteps: int, batch_size: int, save_every=None, se
                           image_shape=(90, 120, 3),
                           path=dict(origin=sample_origins(amount=10, seed=seed)),
                           throttle_as_desired_speed=True,
-                          range_controls=dict(steer=(-0.9, 0.9)),
+                          # range_controls=dict(steer=(-0.9, 0.9)),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 
@@ -340,12 +339,12 @@ def stage_s2(episodes: int, timesteps: int, batch_size: int, save_every=None, se
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
         batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
-        advantage_scale=2.0,
+        advantage_scale=2.0, load_full=True,
         policy_lr=policy_lr,
         value_lr=value_lr,
         dynamics_lr=dynamics_lr,
         entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
-        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=0.5, update_dynamics=True)
+        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=1.0, update_dynamics=True)
 
     env_dict = define_env(town=None, debug=True, throttle_as_desired_speed=True,
                           image_shape=(90, 120, 3),
@@ -359,20 +358,28 @@ def stage_s2(episodes: int, timesteps: int, batch_size: int, save_every=None, se
                                           save_every=save_every)))
 
 
-def stage_s3(episodes: int, timesteps: int, save_every=None, seed=None, stage_name='stage-s3', **kwargs):
-    """Stage-3: random origin with 50 vehicles and 50 pedestrians"""
+def stage_s3(episodes: int, timesteps: int, batch_size: int, save_every=None, seed=42, stage_name='stage-s3', **kwargs):
+    """Stage-3: random origin with 50 vehicles and 50 pedestrians + random light weather"""
+    policy_lr = kwargs.pop('policy_lr', 3e-4)
+    value_lr = kwargs.pop('value_lr', 3e-4)
+    clip_ratio = kwargs.pop('clip_ratio', 0.2)
+    entropy = kwargs.pop('entropy_regularization', 0.1)
+    dynamics_lr = kwargs.pop('dynamics_lr', 3e-4)
+
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
-        optimization_steps=(1, 1),
-        advantage_scale=2.0,
-        policy_lr=1e-5, value_lr=1e-5, entropy_regularization=0.1,
-        shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
-        clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
+        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
+        advantage_scale=2.0, load_full=True,
+        policy_lr=policy_lr,
+        value_lr=value_lr,
+        dynamics_lr=dynamics_lr,
+        entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
+        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=1.0, update_dynamics=True)
 
-    env_dict = define_env(town=None, debug=True,
+    # TODO: random weather
+    env_dict = define_env(town=None, debug=True, throttle_as_desired_speed=True,
+                          image_shape=(90, 120, 3),
                           spawn=dict(vehicles=50, pedestrians=50),
-                          range_controls=dict(steer=(-0.3, 0.3)),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 
@@ -381,6 +388,7 @@ def stage_s3(episodes: int, timesteps: int, save_every=None, seed=None, stage_na
                                           save_every=save_every)))
 
 
+# TODO: complete
 def stage_s4(episodes: int, timesteps: int, town: str, save_every=None, seed=None, stage_name='stage-s4', **kwargs):
     """Stage-4: new town with regular traffic (50 vehicles and 50 pedestrians)"""
     agent_dict = define_agent(

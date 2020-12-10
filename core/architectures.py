@@ -7,7 +7,7 @@ from typing import List
 
 
 def feature_net(inputs: Input, time_horizon: int, units=32, num_layers=2, activation='relu',
-                normalization='batch') -> List[Layer]:
+                normalization=None) -> List[Layer]:
     splits = tf.split(inputs, time_horizon, axis=1)
     splits = [tf.squeeze(split, axis=1) for split in splits]
 
@@ -17,10 +17,12 @@ def feature_net(inputs: Input, time_horizon: int, units=32, num_layers=2, activa
     else:
         x = splits
 
-    dense = [Dense(units, activation=activation) for _ in range(num_layers)]
+    dense = [Dense(units, activation=activation, bias_initializer='glorot_uniform') for _ in range(num_layers)]
+    batch_norm = [BatchNormalization() for _ in range(num_layers)]
 
     for i in range(num_layers):
         x = [dense[i](_x) for _x in x]
+        x = [batch_norm[i](_x) for _x in x]
 
     return x
 

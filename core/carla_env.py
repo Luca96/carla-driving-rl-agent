@@ -6,33 +6,41 @@ from gym import spaces
 from rl import utils
 from rl.environments import ThreeCameraCARLAEnvironment, CARLAEvent
 from rl.environments.carla.tools import utils as carla_utils
+from rl.environments.carla import env_utils
 
 from typing import Dict, Tuple, Optional, Union
 
 
+# TODO: changes
+#  - action space from 3 to 2 actions: throttle_or_brake, steer
+#  - new state space: [image, road, vehicle, navigation]
 class CARLAEnv(ThreeCameraCARLAEnvironment):
-    VEHICLE_FEATURES = dict(space=spaces.Box(low=-99.0, high=99.0, shape=(19,)),
-                            default=np.zeros(shape=19, dtype=np.float32))
+    ACTION = dict(space=spaces.Box(low=-1.0, high=1.0, shape=(2,)), default=np.zeros(shape=2, dtype=np.float32))
 
-    ROAD_FEATURES = dict(space=spaces.Box(low=0.0, high=1.0, shape=(29,)), default=np.zeros(shape=29, dtype=np.float32))
-    COMMAND_SPACE = spaces.Box(low=0.0, high=1.0, shape=(3,))
+    VEHICLE_FEATURES = dict(space=spaces.Box(low=0.0, high=1.0, shape=(4,)),
+                            default=np.zeros(shape=4, dtype=np.float32))
 
-    def __init__(self, *args, stack_depth=False, collision_penalty=1000.0, info_every=1, add_throttle=0.0,
-                 time_horizon=1, past_obs_freq=1, throttle_as_desired_speed=False,
+    NAVIGATION_FEATURES = dict()
+    ROAD_FEATURES = dict(space=spaces.Box(low=0.0, high=1.0, shape=(9,)), default=np.zeros(shape=9, dtype=np.float32))
+
+    def __init__(self, *args, stack_depth=False, collision_penalty=1000.0, info_every=1, time_horizon=4,
+                 past_obs_freq=4, throttle_as_desired_speed=True, num_waypoints_for_feature=5,
                  range_controls: Optional[Dict[str, Tuple[float, float]]] = None, **kwargs):
         """
         :param stack_depth: if true the depth-image from the depth camera sensor will be stacked along the channel
                             dimension of the image, resulting in an image with an additional channel (e.g. 3 + 1 = 4)
         :param collision_penalty: how much the agent should be penalized for colliding with other objects.
         :param info_every: how frequently in terms of steps, the additional information should be gathered.
-        :param add_throttle: fixed amount of `throttle` added to the vehicle control (i.e. added to `control.throttle`)
         :param range_controls: optional dict used to specify the range for each vehicle's control.
         :param time_horizon: how much observations to consider as a single one (suitable for RNN processing)
         :param past_obs_freq: how often (in terms of steps) to consider an observation as a past observation.
+        :param num_waypoints_for_feature: how many waypoints to consider for the `navigation` feature vector.
         """
         assert info_every >= 1
         assert time_horizon >= 1
         assert past_obs_freq >= 1
+        assert num_waypoints_for_feature >= 1
+
         image_shape = kwargs.pop('image_shape', (90, 120, 3))
 
         if stack_depth:
@@ -47,8 +55,12 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         self.next_waypoint = None
         self.waypoint_reward = 0.0
         self.info_every = info_every
-        self.add_throttle = add_throttle
         self.interpret_throttle_as_desired_speed = throttle_as_desired_speed
+
+        # definition of `navigation` feature:
+        self.num_waypoints = num_waypoints_for_feature
+        self.NAVIGATION_FEATURES['space'] = spaces.Box(low=0.0, high=25.0, shape=(self.num_waypoints,))
+        self.NAVIGATION_FEATURES['default'] = np.zeros(shape=self.num_waypoints, dtype=np.float32)
 
         # statistics
         self.episode = -1
@@ -65,6 +77,29 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         # init the past observations list with t empty (default) observations
         # NOTE: the last obs is always the current (most recent) one
         self.past_obs = self._init_past_obs()
+
+    def define_sensors(self) -> dict:
+        from rl.environments.carla.sensors import SensorSpecs
+        return dict(collision=SensorSpecs.collision_detector(callback=self.on_collision),
+                    imu=SensorSpecs.imu(),
+                    front_camera=SensorSpecs.rgb_camera(position='on-top2', attachment_type='Rigid',
+                                                                 image_size_x=self.image_size[0],
+                                                                 image_size_y=self.image_size[1],
+                                                                 sensor_tick=self.tick_time),
+                    left_camera=SensorSpecs.rgb_camera(position='lateral-left', attachment_type='Rigid',
+                                                                image_size_x=self.image_size[0],
+                                                                image_size_y=self.image_size[1],
+                                                                sensor_tick=self.tick_time),
+                    right_camera=SensorSpecs.rgb_camera(position='lateral-right', attachment_type='Rigid',
+                                                                 image_size_x=self.image_size[0],
+                                                                 image_size_y=self.image_size[1],
+                                                                 sensor_tick=self.tick_time))
+
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        return spaces.Dict(road=self.ROAD_FEATURES['space'], vehicle=self.VEHICLE_FEATURES['space'],
+                           image=self.image_space, navigation=self.NAVIGATION_FEATURES['space'])
 
     @property
     def info_space(self) -> spaces.Space:
@@ -101,10 +136,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
             if carla_utils.speed(self.vehicle) < 10.0:
                 self.control.brake = 0.0
 
-            if self.control.throttle > 0.001:
-                self.control.throttle = min(self.control.throttle + self.add_throttle, 1.0)
-                # self.control.throttle = self.smooth_throttle()
-
         if 'throttle' in self.range_controls:
             throttle = self.range_controls['throttle']
             self.control.throttle = utils.clip(self.control.throttle, min_value=throttle[0], max_value=throttle[1])
@@ -139,57 +170,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
         return r
 
-    # def reward(self, *args, s=0.65, d=6.0, **kwargs) -> float:
-    #     """Reward function"""
-    #     speed = carla_utils.speed(self.vehicle)
-    #     dw = self.route.distance_to_next_waypoint()
-    #
-    #     if self.collision_penalty > 0.0:
-    #         self.should_terminate = True
-    #         return -self.collision_penalty
-    #
-    #     if self.similarity <= s:
-    #         self.should_terminate = True
-    #         self.trigger_event(CARLAEvent.OUT_OF_LANE)
-    #         return -1.0
-    #
-    #     if speed > self.vehicle.get_speed_limit() or dw > d:
-    #         return 0.0
-    #
-    #     if speed < 1.0:
-    #         return -0.1 * self.similarity
-    #
-    #     if 1.0 <= speed <= 2.5:
-    #         return 0.1 * self.similarity
-    #
-    #     return self.similarity
-
-    # def reward(self, *args, s=0.65, d=4.0, **kwargs) -> float:
-        # """Reward function"""
-        # speed = carla_utils.speed(self.vehicle)
-        # speed_limit = self.vehicle.get_speed_limit()
-        # dw = self.route.distance_to_next_waypoint()
-        #
-        # if self.collision_penalty > 0.0:
-        #     self.should_terminate = True
-        #     return -self.collision_penalty
-        #
-        # if self.similarity <= s:
-        #     self.should_terminate = True
-        #     self.trigger_event(CARLAEvent.OUT_OF_LANE)
-        #     return -1.0
-        #
-        # if speed > speed_limit or dw > d:
-        #     return 0.0
-        #
-        # # if speed < 1.0:
-        # #     return -0.1 * self.similarity
-        # #
-        # # if 1.0 <= speed <= 2.5:
-        # #     return 0.1 * self.similarity
-        #
-        # return (speed / speed_limit) * self.similarity
-
     def reset(self) -> dict:
         self.next_waypoint = None
         self.waypoint_reward = 0.0
@@ -198,9 +178,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         self.timestep = 0
         self.total_reward = 0.0
         self.past_obs = self._init_past_obs()
-
-        # for k in self.info_buffer.keys():
-        #     self.info_buffer[k].clear()
 
         return super().reset()
 
@@ -220,22 +197,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         self.total_reward += reward
 
         return state, reward, done, info
-
-    @staticmethod
-    def convert_command(command):
-        """Converts the 7-dimensional routing command to a 3-dimensional high-level command to condition the agent"""
-        i = np.argmax(command)
-
-        if i == 0:
-            # left
-            return [1.0, 0.0, 0.0]
-
-        if i == 1:
-            # right
-            return [0.0, 0.0, 1.0]
-
-        # straight or follow lane
-        return [0.0, 1.0, 0.0]
 
     def on_collision(self, event: carla.CollisionEvent, **kwargs):
         actor_type = event.other_actor.type_id
@@ -276,22 +237,35 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
     def get_observation(self, sensors_data: dict) -> Union[list, dict]:
         obs = self._get_observation(sensors_data)
 
-        # # backward compatibility:
-        # if self.time_horizon == 1:
-        #     return obs
-
         # consider an observation (over time) only at certain timesteps
         if self.timestep % self.past_obs_freq == 0:
             # update past observation list:
-            self.past_obs.pop(index=0)  # remove the oldest (t=0)
+            self.past_obs.pop(0)  # remove the oldest (t=0)
             self.past_obs.append(obs)  # append the newest
 
         return self.past_obs.copy()
 
     def _get_observation(self, sensors_data: dict) -> dict:
-        obs = super().get_observation(sensors_data)
-        obs['command'] = self.convert_command(obs['command'])
-        return obs
+        if len(sensors_data.keys()) == 0:
+            # return default obs
+            return dict(image=self.default_image, vehicle=self.VEHICLE_FEATURES['default'],
+                        road=self.ROAD_FEATURES['default'], navigation=self.NAVIGATION_FEATURES['default'])
+
+        # get image, reshape, and scale
+        image = np.asarray(sensors_data['camera'], dtype=np.float32)
+
+        if image.shape != self.image_shape:
+            image = env_utils.resize(image, size=self.image_size)
+
+        image /= 255.0
+
+        # features
+        vehicle_obs = self._get_vehicle_features()
+        road_obs = self._get_road_features()
+        navigation_obs = self._get_navigation_features()
+
+        obs = dict(image=image, vehicle=vehicle_obs, road=road_obs, navigation=navigation_obs)
+        return env_utils.replace_nans(obs)
 
     def _init_past_obs(self) -> list:
         """Returns a list of empty observations"""
@@ -306,55 +280,53 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         return info
 
     def _get_road_features(self):
-        """29 features:
+        """9 features:
             - 3: is_intersection, is_junction, is_at_traffic_light
-            - 4: speed_limit
+            - 1: speed_limit
             - 5: traffic_light_state
-            - 4: lane_change
-            - 5: lane_type,
-            - 8: left + right lane_marking_type
         """
         waypoint: carla.Waypoint = self.map.get_waypoint(self.vehicle.get_location())
-        speed_limit_bin = self.one_hot_speed(speed=self.vehicle.get_speed_limit())
+        speed_limit = self.vehicle.get_speed_limit() / 100.0
 
         # Traffic light:
         is_at_traffic_light = float(self.vehicle.is_at_traffic_light())
         traffic_light_state = self.one_hot_traffic_light_state()
 
-        # Lanes:
-        lane_type = self.one_hot_lane_type(lane=waypoint.lane_type)
-        lane_change = self.one_hot_lane_change(lane=waypoint.lane_change)
-        left_lane_type = self.one_hot_lane_marking_type(lane=waypoint.left_lane_marking)
-        right_lane_type = self.one_hot_lane_marking_type(lane=waypoint.right_lane_marking)
-
         return np.concatenate((
             [float(waypoint.is_intersection), float(waypoint.is_junction), is_at_traffic_light],
-            speed_limit_bin,
-            traffic_light_state,
-            lane_type,
-            lane_change,
-            left_lane_type,
-            right_lane_type), axis=0)
+            [speed_limit],
+            traffic_light_state), axis=0)
 
     def _get_vehicle_features(self):
-        """19 features:
-            - 4: vehicle's speed
-            - 3: accelerometer
-            - 3: gyroscope
-            - 1: compass
-            - 1: similarity
-            - 4: similarity (one-hot)
-            - 3: distance
+        """4 features:
+            - 1: similarity (e.g. current heading direction w.r.t. next route waypoint)
+            - 1: speed
+            - 1: throttle
+            - 1: brake
         """
-        imu_sensor = self.sensors['imu']
+        return np.array([
+            self.similarity,
+            carla_utils.speed(self.vehicle) / 100.0,
+            self.control.throttle,
+            self.control.brake])
 
-        return np.concatenate((
-            self.one_hot_speed(speed=carla_utils.speed(self.vehicle)),
-            imu_sensor.accelerometer,
-            imu_sensor.gyroscope,
-            [imu_sensor.compass, self.similarity],
-            self.one_hot_similarity(),
-            self.one_hot_waypoint_distance(self.route.distance_to_next_waypoint())), axis=0)
+    def _get_navigation_features(self):
+        """features: N distances from current vehicle location to N next route waypoints' locations
+        """
+        vehicle_location = self.vehicle.get_location()
+        waypoints = self.route.get_next_waypoints(amount=self.num_waypoints)
+        distances = []
+
+        for w in waypoints:
+            d = carla_utils.l2_norm(vehicle_location, w.transform.location) / self.num_waypoints
+            distances.append(d)
+
+        # pad the list with last (thus greater) distance if smaller then required
+        if len(distances) < self.num_waypoints:
+            for _ in range(self.num_waypoints - len(distances)):
+                distances.append(distances[-1])
+
+        return np.array(distances)
 
     def _update_target_waypoint(self):
         super()._update_target_waypoint()
