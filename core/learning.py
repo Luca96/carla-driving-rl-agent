@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import carla
 
 from rl.environments import CARLACollectWrapper
 from rl.environments.carla import env_utils as carla_utils
@@ -112,8 +113,9 @@ class Stage:
         self.name = name
 
     def init(self):
-        self.env = self.env_class(**self.env_args)
-        self.agent = self.agent_class(self.env, **self.agent_args)
+        if self.env is None:
+            self.env = self.env_class(**self.env_args)
+            self.agent = self.agent_class(self.env, **self.agent_args)
 
     def run(self, epochs: int, collect: Union[bool, int] = True, representation=True):
         assert epochs > 0
@@ -140,7 +142,7 @@ class Stage:
 
         self.cleanup()
 
-    def run2(self, epochs: int, copy_weights=True, epoch_offset=0):
+    def run2(self, epochs: int, copy_weights=True, epoch_offset=0) -> 'Stage':
         assert epochs > 0
         self.init()
 
@@ -157,13 +159,19 @@ class Stage:
                 utils.copy_folder(src=self.agent.base_path, dst=f'{self.agent.base_path}-{epoch + epoch_offset}')
 
         self.cleanup()
+        return self
+
+    def evaluate(self, **kwargs) -> 'Stage':
+        self.init()
+        self.agent.evaluate(**kwargs)
+        return self
 
     def collect(self):
         wrapper = CARLACollectWrapper(env=self.env, **self.collect_args)
         wrapper.collect(**self.learn_args['collect'])
 
-    def representation_learning(self):
-        self.agent.learn_representation(**self.repr_args)
+    # def representation_learning(self):
+    #     self.agent.learn_representation(**self.repr_args)
 
     def imitation_learning(self):
         self.agent.imitation_learning(**self.imitation_args)
@@ -376,9 +384,19 @@ def stage_s3(episodes: int, timesteps: int, batch_size: int, save_every=None, se
         entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
         clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=1.0, update_dynamics=True)
 
-    # TODO: random weather
+    light_weathers = [
+        carla.WeatherParameters.ClearNoon,
+        carla.WeatherParameters.ClearSunset,
+        carla.WeatherParameters.CloudyNoon,
+        carla.WeatherParameters.SoftRainNoon,
+        carla.WeatherParameters.SoftRainSunset,
+        carla.WeatherParameters.WetNoon,
+        carla.WeatherParameters.WetSunset
+    ]
+
     env_dict = define_env(town=None, debug=True, throttle_as_desired_speed=True,
                           image_shape=(90, 120, 3),
+                          random_weathers=light_weathers,
                           spawn=dict(vehicles=50, pedestrians=50),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
@@ -388,21 +406,80 @@ def stage_s3(episodes: int, timesteps: int, batch_size: int, save_every=None, se
                                           save_every=save_every)))
 
 
-# TODO: complete
-def stage_s4(episodes: int, timesteps: int, town: str, save_every=None, seed=None, stage_name='stage-s4', **kwargs):
-    """Stage-4: new town with regular traffic (50 vehicles and 50 pedestrians)"""
+def stage_s4(episodes: int, timesteps: int, batch_size: int, town: str, save_every=None, seed=42, stage_name='stage-s4',
+             **kwargs):
+    """Stage-4: new town with regular traffic (50 vehicles and 50 pedestrians) + random light weather"""
+    policy_lr = kwargs.pop('policy_lr', 3e-4)
+    value_lr = kwargs.pop('value_lr', 3e-4)
+    clip_ratio = kwargs.pop('clip_ratio', 0.2)
+    entropy = kwargs.pop('entropy_regularization', 0.1)
+    dynamics_lr = kwargs.pop('dynamics_lr', 3e-4)
+
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=64, name=stage_name, traces_dir=None, load=True, seed=seed,
-        optimization_steps=(1, 1),
-        advantage_scale=2.0,
-        policy_lr=1e-5, value_lr=1e-5, entropy_regularization=0.1,
-        shuffle_batches=False, drop_batch_remainder=False, shuffle=True,
-        clip_ratio=0.20, consider_obs_every=1, clip_norm=0.5, update_dynamics=False)
+        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
+        advantage_scale=2.0, load_full=True,
+        policy_lr=policy_lr,
+        value_lr=value_lr,
+        dynamics_lr=dynamics_lr,
+        entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
+        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=1.0, update_dynamics=True)
 
-    env_dict = define_env(town=town, debug=True,
+    light_weathers = [
+        carla.WeatherParameters.ClearNoon,
+        carla.WeatherParameters.ClearSunset,
+        carla.WeatherParameters.CloudyNoon,
+        carla.WeatherParameters.SoftRainNoon,
+        carla.WeatherParameters.SoftRainSunset,
+        carla.WeatherParameters.WetNoon,
+        carla.WeatherParameters.WetSunset
+    ]
+
+    env_dict = define_env(town=town, debug=True, throttle_as_desired_speed=True,
+                          image_shape=(90, 120, 3),
+                          random_weathers=light_weathers,
                           spawn=dict(vehicles=50, pedestrians=50),
-                          range_controls=dict(steer=(-0.3, 0.3)),
+                          info_every=kwargs.get('repeat_action', 1),
+                          disable_reverse=True, window_size=(900, 245))
+
+    return Stage(agent=agent_dict, environment=env_dict,
+                 learning=dict(agent=dict(episodes=episodes, timesteps=timesteps, render_every=False, close=False,
+                                          save_every=save_every)))
+
+
+def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_every=None, seed=42, stage_name='stage-s4',
+             **kwargs):
+    """Stage-4: new town with dense traffic (150 vehicles and 250 pedestrians) + random light weather"""
+    policy_lr = kwargs.pop('policy_lr', 3e-4)
+    value_lr = kwargs.pop('value_lr', 3e-4)
+    clip_ratio = kwargs.pop('clip_ratio', 0.2)
+    entropy = kwargs.pop('entropy_regularization', 0.1)
+    dynamics_lr = kwargs.pop('dynamics_lr', 3e-4)
+
+    agent_dict = define_agent(
+        class_=CARLAgent, **kwargs,
+        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
+        advantage_scale=2.0, load_full=True,
+        policy_lr=policy_lr,
+        value_lr=value_lr,
+        dynamics_lr=dynamics_lr,
+        entropy_regularization=entropy, shuffle_batches=False, drop_batch_remainder=True, shuffle=True,
+        clip_ratio=clip_ratio, consider_obs_every=1, clip_norm=1.0, update_dynamics=True)
+
+    light_weathers = [
+        carla.WeatherParameters.ClearNoon,
+        carla.WeatherParameters.ClearSunset,
+        carla.WeatherParameters.CloudyNoon,
+        carla.WeatherParameters.SoftRainNoon,
+        carla.WeatherParameters.SoftRainSunset,
+        carla.WeatherParameters.WetNoon,
+        carla.WeatherParameters.WetSunset
+    ]
+
+    env_dict = define_env(town=town, debug=True, throttle_as_desired_speed=True,
+                          image_shape=(90, 120, 3),
+                          random_weathers=light_weathers,
+                          spawn=dict(vehicles=100, pedestrians=200),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 

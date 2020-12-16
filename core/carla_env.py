@@ -1,4 +1,5 @@
 import carla
+import random
 import numpy as np
 
 from gym import spaces
@@ -25,7 +26,8 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
     def __init__(self, *args, stack_depth=False, collision_penalty=1000.0, info_every=1, time_horizon=4,
                  past_obs_freq=4, throttle_as_desired_speed=True, num_waypoints_for_feature=5,
-                 range_controls: Optional[Dict[str, Tuple[float, float]]] = None, **kwargs):
+                 range_controls: Optional[Dict[str, Tuple[float, float]]] = None, random_weathers: list = None,
+                 **kwargs):
         """
         :param stack_depth: if true the depth-image from the depth camera sensor will be stacked along the channel
                             dimension of the image, resulting in an image with an additional channel (e.g. 3 + 1 = 4)
@@ -35,6 +37,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         :param time_horizon: how much observations to consider as a single one (suitable for RNN processing)
         :param past_obs_freq: how often (in terms of steps) to consider an observation as a past observation.
         :param num_waypoints_for_feature: how many waypoints to consider for the `navigation` feature vector.
+        :param random_weathers: list of carla.WeatherParameters which are sampled at each environment reset.
         """
         assert info_every >= 1
         assert time_horizon >= 1
@@ -53,7 +56,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
         self.penalty = collision_penalty
         self.next_waypoint = None
-        self.waypoint_reward = 0.0
         self.info_every = info_every
         self.interpret_throttle_as_desired_speed = throttle_as_desired_speed
 
@@ -77,6 +79,16 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         # init the past observations list with t empty (default) observations
         # NOTE: the last obs is always the current (most recent) one
         self.past_obs = self._init_past_obs()
+
+        # Random weather:
+        if isinstance(random_weathers, list):
+            self.should_sample_weather = True
+            self.weather_set = random_weathers
+
+            for w in random_weathers:
+                assert isinstance(w, carla.WeatherParameters)
+        else:
+            self.should_sample_weather = False
 
     def define_sensors(self) -> dict:
         from rl.environments.carla.sensors import SensorSpecs
@@ -172,7 +184,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
     def reset(self) -> dict:
         self.next_waypoint = None
-        self.waypoint_reward = 0.0
 
         self.episode += 1
         self.timestep = 0
@@ -180,6 +191,12 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         self.past_obs = self._init_past_obs()
 
         return super().reset()
+
+    def reset_world(self):
+        if self.should_sample_weather:
+            self.set_weather(weather=random.choice(self.weather_set))
+
+        super().reset_world()
 
     def reset_info(self):
         for k in self.info_buffer.keys():
@@ -333,13 +350,9 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
         if self.next_waypoint is None:
             self.next_waypoint = self.route.next
-            self.waypoint_reward = 0.0
 
         elif self.next_waypoint != self.route.next:
             self.next_waypoint = self.route.next
-            self.waypoint_reward = 1.0
-        else:
-            self.waypoint_reward = 0.0
 
     def one_hot_traffic_light_state(self):
         if self.vehicle.is_at_traffic_light():

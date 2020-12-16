@@ -4,8 +4,10 @@ import time
 import random
 import tensorflow as tf
 import numpy as np
+import carla
+import json
 
-from typing import Union
+from typing import Union, List
 
 from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 from tensorflow.keras import losses
@@ -15,6 +17,7 @@ from rl import augmentations as aug
 from rl.agents import PPOAgent
 from rl.agents.ppo import PPOMemory
 from rl.environments import ThreeCameraCARLAEnvironmentDiscrete
+from rl.environments.carla.tools import utils as carla_utils
 from rl.parameters import DynamicParameter
 
 from core.networks import CARLANetwork
@@ -47,8 +50,6 @@ class FakeCARLAEnvironment(gym.Env):
 # -- Agent
 # -------------------------------------------------------------------------------------------------
 
-# TODO: changes
-#   - different network architecture
 # TODO: imitation learning broken!!
 class CARLAgent(PPOAgent):
     # Default neural network architecture
@@ -61,7 +62,6 @@ class CARLAgent(PPOAgent):
                             rnn=dict(image=256, road=32, vehicle=32, navigation=32),
                             dynamics=dict(units=512))
 
-    # TODO: experimental `eta` and `delta` coefficients for auxiliary losses
     def __init__(self, *args, aug_intensity=1.0, clip_norm=(1.0, 1.0, 1.0), name='carla', load_full=True, eta=0.0,
                  dynamics_lr: Union[float, LearningRateSchedule] = 1e-3, update_dynamics=True, delta=0.0, aux=1.0,
                  **kwargs):
@@ -94,11 +94,11 @@ class CARLAgent(PPOAgent):
         self.network: CARLANetwork = self.network
         self.aug_intensity = aug_intensity
 
-        # self.delta = delta / self.batch_size
-        # self.eta = eta / self.batch_size
         self.delta = delta
         self.eta = eta
         self.aux = aux
+
+        self.evaluation_path = utils.makedir(os.path.join(self.base_path, 'evaluation'))
 
         # gradient clipping:
         if isinstance(clip_norm, float):
@@ -142,57 +142,117 @@ class CARLAgent(PPOAgent):
 
         self.env.reset_info()
 
-    def evaluate(self, episodes: int, timesteps: int, render=True, seeds=None) -> list:
-        rewards = []
-        sample_seed = False
-        # preprocess_fn = self.preprocess()
+    def evaluate(self, name: str, timesteps: int, trials: int, seeds: Union[None, int, List[int]] = None,
+                 town='Town03', weather=carla.WeatherParameters.ClearNoon, close=False) -> dict:
+        assert trials > 0
+        assert timesteps > 0
 
         if isinstance(seeds, int):
             self.set_random_seed(seed=seeds)
-        elif isinstance(seeds, list):
-            sample_seed = True
 
-        for episode in range(1, episodes + 1):
-            if sample_seed:
-                self.set_random_seed(seed=random.choice(seeds))
+        self.env.set_town(town)
+        self.env.set_weather(weather)
 
-            preprocess_fn = self.preprocess()
-            self.reset()
-            episode_reward = 0.0
+        results = dict(collision_rate=[], similarity=[], waypoint_distance=[],
+                       speed=[], total_reward=[], timesteps=[])
+        save_path = os.path.join(self.evaluation_path, f'{name}.json')
+        print(save_path)
 
-            state = self.env.reset()
-            action = tf.zeros((1, self.num_actions))
-            reward = 0.0
-            value = tf.zeros_like(self.network.last_value)
+        # disable data-augmentation
+        aug_intensity = self.aug_intensity
+        self.aug_intensity = 0.0
 
-            for t in range(1, timesteps + 1):
-                if render:
-                    self.env.render()
+        try:
+            for trial in range(1, trials + 1):
+                self.memory = self.get_memory()
 
-                if isinstance(state, dict):
-                    state = {f'state_{k}': v for k, v in state.items()}
+                # random seed
+                if isinstance(seeds, list):
+                    if len(seeds) == trials:
+                        self.set_random_seed(seed=seeds[trial])
+                    else:
+                        self.set_random_seed(seed=random.choice(seeds))
 
-                state = preprocess_fn(state)
-                state = utils.to_tensor(state)
+                elif seeds == 'sample':
+                    self.set_random_seed(seed=random.randint(a=0, b=2 ** 32 - 1))
 
-                action, value = self.act(state, action=action, value=value, reward=tf.reshape(reward, (1, 1)))
-                state, reward, done, _ = self.env.step(self.convert_action(action))
-                episode_reward += reward
+                preprocess_fn = self.preprocess()
+                self.reset()
 
-                self.log(actions=action, rewards=reward, values=value, terminals=done)
+                state = self.env.reset()
+                t0 = time.time()
+                total_reward = 0.0
 
-                if done or (t == timesteps):
-                    print(f'Episode {episode} terminated after {t} timesteps with reward {episode_reward}.')
-                    rewards.append(episode_reward)
-                    break
+                # vehicle statistics
+                similarity = 0.0
+                speed = 0.0
+                waypoint_distance = 0.0
 
-            self.log(evaluation_reward=episode_reward)
-            self.write_summaries()
+                for t in range(1, timesteps + 1):
+                    if isinstance(state, dict):
+                        state = {f'state_{k}': v for k, v in state.items()}
 
-        self.env.close()
+                    state = preprocess_fn(state)
+                    state = utils.to_tensor(state)
 
-        print(f'Mean reward: {round(np.mean(rewards), 2)}, std: {round(np.std(rewards), 2)}')
-        return rewards
+                    # Agent prediction
+                    action, mean, std, log_prob, value = self.predict(state)
+                    action_env = self.convert_action(action)
+
+                    # Environment step
+                    for _ in range(self.repeat_action):
+                        next_state, reward, done, _ = self.env.step(action_env)
+                        total_reward += reward
+
+                        if done:
+                            break
+
+                    similarity += self.env.similarity
+                    speed += carla_utils.speed(self.env.vehicle)
+                    waypoint_distance += self.env.route.distance_to_next_waypoint()
+
+                    self.log(eval_actions=action, eval_rewards=reward,
+                             eval_distribution_mean=mean, eval_distribution_std=std)
+
+                    self.memory.append(state, action, reward, value, log_prob, timestep=t)
+                    state = next_state
+
+                    if done or (t == timesteps):
+                        # save results of current trial
+                        results['total_reward'].append(total_reward)
+                        results['timesteps'].append(t)
+                        results['collision_rate'].append(1.0 if self.env.should_terminate else 0.0)
+                        results['similarity'].append(similarity / t)
+                        results['waypoint_distance'].append(waypoint_distance / t)
+                        results['speed'].append(speed / t)
+
+                        self.log(**{f'eval_{k}': v[-1] for k, v in results.items()})
+
+                        print(f'Trial-{trial} terminated after {t} timesteps in {round(time.time() - t0, 3)} with total'
+                              f' reward of {round(total_reward, 3)}.')
+                        break
+
+                self.write_summaries()
+                self.memory.delete()
+
+            # save average results over trials as json
+            avg_results = {k: float(np.mean(v)) for k, v in results.items()}
+            # for k, v in results.items():
+            #     print(k)
+            #     print(v)
+            #     breakpoint()
+
+            with open(save_path, 'w') as file:
+                json.dump(avg_results, fp=file)
+
+        finally:
+            # restore data-augmentation intensity value
+            self.aug_intensity = aug_intensity
+
+            if close:
+                self.env.close()
+
+        return results
 
     def policy_batch_tensors(self) -> Union[tuple, dict]:
         """Defines a batch of data for the policy network"""
