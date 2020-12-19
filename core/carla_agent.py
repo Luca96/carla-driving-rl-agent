@@ -235,12 +235,11 @@ class CARLAgent(PPOAgent):
                 self.write_summaries()
                 self.memory.delete()
 
-            # save average results over trials as json
+            # save average with standard-deviation of results over trials as json
             avg_results = {k: float(np.mean(v)) for k, v in results.items()}
-            # for k, v in results.items():
-            #     print(k)
-            #     print(v)
-            #     breakpoint()
+
+            for k, v in results.items():
+                avg_results[f'{k}_std'] = float(np.std(v))
 
             with open(save_path, 'w') as file:
                 json.dump(avg_results, fp=file)
@@ -791,34 +790,51 @@ class CARLAgent(PPOAgent):
 
             if alpha > 0.0:
                 # Color distortion
-                image = aug.simclr.color_distortion(image, strength=alpha, seed=seed)
+                # image = aug.simclr.color_distortion(image, strength=alpha, seed=seed)
+
+                # Color Jitter:
+                if aug.tf_chance(seed=seed) < alpha:
+                    image = aug.simclr.color_jitter(image, strength=alpha, seed=seed)
+                    # print('jitter', image.shape)
+                    # breakpoint()
 
                 # blur
-                if aug.tf_chance(seed=seed) < 0.33 * alpha:
-                    image = aug.tf_gaussian_blur(image, size=5, seed=seed)
+                if aug.tf_chance(seed=seed) < 0.25 * alpha:
+                    blur_size = 3 if aug.tf_chance(seed=seed) >= 0.5 else 5
+                    image = aug.tf_gaussian_blur(image, size=blur_size, seed=seed)
+                    # print('blur', image.shape)
+                    # breakpoint()
 
                 # noise
                 if aug.tf_chance(seed=seed) < 0.2 * alpha:
-                    image = aug.tf_salt_and_pepper(image, amount=0.1)
+                    image = aug.tf_salt_and_pepper_batch(image, amount=0.1)
+                    # print('pepper', image.shape)
+                    # breakpoint()
 
                 if aug.tf_chance(seed=seed) < 0.33 * alpha:
-                    image = aug.tf_gaussian_noise(image, amount=0.15, std=0.15, seed=seed)
+                    image = aug.tf_gaussian_noise_batch(image, amount=0.10, std=0.075, seed=seed)
+                    # image = aug.tf_gaussian_noise_batch(image, amount=0.15, std=0.15, seed=seed)
+                    # print('gauss', image.shape)
+                    # breakpoint()
 
-                image = aug.tf_normalize(image)
+                image = aug.tf_normalize_batch(image)
+                # print('norm', image.shape)
+                # breakpoint()
 
                 # cutout
                 if aug.tf_chance(seed=seed) < 0.15 * alpha:
-                    image = aug.tf_cutout(image, size=6, seed=seed)
+                    image = aug.tf_cutout_batch(image, size=6, seed=seed)
+                    # print('cut', image.shape)
+                    # breakpoint()
 
                 # coarse dropout
                 if aug.tf_chance(seed=seed) < 0.15 * alpha:
-                    image = aug.tf_coarse_dropout(image, size=36, seed=seed)
+                    image = aug.tf_coarse_dropout_batch(image, size=81, amount=0.04, seed=seed)
+                    # print('drop', image.shape)
+                    # breakpoint()
 
             state['state_image'] = image
             return state
-
-        # def apply_augmentations(states):
-        #     return [augment_fn(state) for state in states]
 
         return augment_fn
 

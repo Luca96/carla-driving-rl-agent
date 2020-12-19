@@ -27,7 +27,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
     def __init__(self, *args, stack_depth=False, collision_penalty=1000.0, info_every=1, time_horizon=4,
                  past_obs_freq=4, throttle_as_desired_speed=True, num_waypoints_for_feature=5,
                  range_controls: Optional[Dict[str, Tuple[float, float]]] = None, random_weathers: list = None,
-                 **kwargs):
+                 random_towns: list = None, **kwargs):
         """
         :param stack_depth: if true the depth-image from the depth camera sensor will be stacked along the channel
                             dimension of the image, resulting in an image with an additional channel (e.g. 3 + 1 = 4)
@@ -38,6 +38,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         :param past_obs_freq: how often (in terms of steps) to consider an observation as a past observation.
         :param num_waypoints_for_feature: how many waypoints to consider for the `navigation` feature vector.
         :param random_weathers: list of carla.WeatherParameters which are sampled at each environment reset.
+        :param random_towns: list of town's names, which town is loaded at each environment reset.
         """
         assert info_every >= 1
         assert time_horizon >= 1
@@ -90,6 +91,17 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         else:
             self.should_sample_weather = False
 
+        # Random town:
+        if random_towns is None:
+            self.should_sample_town = False
+
+        elif isinstance(random_towns, list):
+            if len(random_towns) == 0:
+                self.should_sample_town = False
+            else:
+                self.should_sample_town = True
+                self.town_set = random_towns
+
     def define_sensors(self) -> dict:
         from rl.environments.carla.sensors import SensorSpecs
         return dict(collision=SensorSpecs.collision_detector(callback=self.on_collision),
@@ -106,7 +118,6 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
                                                                  image_size_x=self.image_size[0],
                                                                  image_size_y=self.image_size[1],
                                                                  sensor_tick=self.tick_time))
-
 
     @property
     def observation_space(self) -> spaces.Space:
@@ -193,6 +204,9 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         return super().reset()
 
     def reset_world(self):
+        if self.should_sample_town:
+            self.set_town(town=random.choice(self.town_set))
+
         if self.should_sample_weather:
             self.set_weather(weather=random.choice(self.weather_set))
 

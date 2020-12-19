@@ -406,8 +406,8 @@ def stage_s3(episodes: int, timesteps: int, batch_size: int, save_every=None, se
                                           save_every=save_every)))
 
 
-def stage_s4(episodes: int, timesteps: int, batch_size: int, town: str, save_every=None, seed=42, stage_name='stage-s4',
-             **kwargs):
+def stage_s4(episodes: int, timesteps: int, batch_size: int, towns=None, save_every=None, seed=42,
+             stage_name='stage-s4', **kwargs):
     """Stage-4: new town with regular traffic (50 vehicles and 50 pedestrians) + random light weather"""
     policy_lr = kwargs.pop('policy_lr', 3e-4)
     value_lr = kwargs.pop('value_lr', 3e-4)
@@ -435,8 +435,8 @@ def stage_s4(episodes: int, timesteps: int, batch_size: int, town: str, save_eve
         carla.WeatherParameters.WetSunset
     ]
 
-    env_dict = define_env(town=town, debug=True, throttle_as_desired_speed=True,
-                          image_shape=(90, 120, 3),
+    env_dict = define_env(town=None, debug=True, throttle_as_desired_speed=True,
+                          image_shape=(90, 120, 3), random_towns=towns,
                           random_weathers=light_weathers,
                           spawn=dict(vehicles=50, pedestrians=50),
                           info_every=kwargs.get('repeat_action', 1),
