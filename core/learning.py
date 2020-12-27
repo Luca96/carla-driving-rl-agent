@@ -408,7 +408,7 @@ def stage_s3(episodes: int, timesteps: int, batch_size: int, save_every=None, se
 
 def stage_s4(episodes: int, timesteps: int, batch_size: int, towns=None, save_every=None, seed=42,
              stage_name='stage-s4', **kwargs):
-    """Stage-4: new town with regular traffic (50 vehicles and 50 pedestrians) + random light weather"""
+    """Stage-4: town with regular traffic (50 vehicles and 50 pedestrians) + random light weather + data-aug"""
     policy_lr = kwargs.pop('policy_lr', 3e-4)
     value_lr = kwargs.pop('value_lr', 3e-4)
     clip_ratio = kwargs.pop('clip_ratio', 0.2)
@@ -447,9 +447,9 @@ def stage_s4(episodes: int, timesteps: int, batch_size: int, towns=None, save_ev
                                           save_every=save_every)))
 
 
-def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_every=None, seed=42, stage_name='stage-s4',
-             **kwargs):
-    """Stage-4: new town with dense traffic (150 vehicles and 250 pedestrians) + random light weather"""
+def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_every=None, seed=42, stage_name='stage-s5',
+             weather=None, traffic='dense', **kwargs):
+    """Stage-5: town with dense traffic (100 vehicles and 200 pedestrians) + random light weather + data-aug"""
     policy_lr = kwargs.pop('policy_lr', 3e-4)
     value_lr = kwargs.pop('value_lr', 3e-4)
     clip_ratio = kwargs.pop('clip_ratio', 0.2)
@@ -476,13 +476,51 @@ def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_eve
         carla.WeatherParameters.WetSunset
     ]
 
+    if weather is None:
+        weather = light_weathers
+
+    traffic_spec = dict(no=None,
+                        regular=dict(vehicles=100, pedestrians=200),
+                        dense=dict(vehicles=100, pedestrians=200))
+
     env_dict = define_env(town=town, debug=True, throttle_as_desired_speed=True,
                           image_shape=(90, 120, 3),
-                          random_weathers=light_weathers,
-                          spawn=dict(vehicles=100, pedestrians=200),
+                          random_weathers=weather,
+                          spawn=traffic_spec[traffic],
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 
     return Stage(agent=agent_dict, environment=env_dict,
                  learning=dict(agent=dict(episodes=episodes, timesteps=timesteps, render_every=False, close=False,
                                           save_every=save_every)))
+
+
+# -------------------------------------------------------------------------------------------------
+# -- EVALUATION
+# -------------------------------------------------------------------------------------------------
+
+def evaluate(mode: str, town: str, seeds: list, traffic: str, steps=512, trials=50):
+    def make_stage(weather):
+        return stage_s5(episodes=1, timesteps=steps, batch_size=1, town=town, seed_regularization=True,
+                        weather=weather, aug_intensity=0.0, repeat_action=1, traffic=traffic)
+
+    if mode == 'train':
+        weather = None
+    else:
+        test_weather = [
+            carla.WeatherParameters.CloudySunset,
+            carla.WeatherParameters.HardRainNoon,
+            carla.WeatherParameters.HardRainSunset,
+            carla.WeatherParameters.MidRainSunset,
+            carla.WeatherParameters.MidRainyNoon,
+            carla.WeatherParameters.WetCloudyNoon,
+            carla.WeatherParameters.WetCloudySunset
+        ]
+
+        weather = test_weather
+
+    stage = make_stage(weather)
+
+    for i, seed in enumerate(seeds):
+        stage.evaluate(name=f's5-{mode}-{steps}-{trials}-{town}-{traffic}-{seed}', timesteps=steps, trials=trials,
+                       town=None, seeds='sample', initial_seed=seed, close=i + 1 == len(seeds))

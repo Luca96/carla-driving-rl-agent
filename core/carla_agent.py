@@ -142,16 +142,17 @@ class CARLAgent(PPOAgent):
 
         self.env.reset_info()
 
-    def evaluate(self, name: str, timesteps: int, trials: int, seeds: Union[None, int, List[int]] = None,
-                 town='Town03', weather=carla.WeatherParameters.ClearNoon, close=False) -> dict:
+    def evaluate(self, name: str, timesteps: int, trials: int, seeds: Union[None, List[int]] = None,
+                 town='Town03', initial_seed=None, close=False) -> dict:
         assert trials > 0
         assert timesteps > 0
 
-        if isinstance(seeds, int):
-            self.set_random_seed(seed=seeds)
+        if isinstance(initial_seed, int):
+            self.set_random_seed(seed=initial_seed)
 
-        self.env.set_town(town)
-        self.env.set_weather(weather)
+        if town is not None:
+            self.env.set_town(town)
+        # self.env.set_weather(weather)
 
         results = dict(collision_rate=[], similarity=[], waypoint_distance=[],
                        speed=[], total_reward=[], timesteps=[])
@@ -163,13 +164,15 @@ class CARLAgent(PPOAgent):
         self.aug_intensity = 0.0
 
         try:
-            for trial in range(1, trials + 1):
+            trials_done = 0
+
+            while trials_done < trials:
                 self.memory = self.get_memory()
 
                 # random seed
                 if isinstance(seeds, list):
                     if len(seeds) == trials:
-                        self.set_random_seed(seed=seeds[trial])
+                        self.set_random_seed(seed=seeds[trials_done])
                     else:
                         self.set_random_seed(seed=random.choice(seeds))
 
@@ -217,7 +220,8 @@ class CARLAgent(PPOAgent):
                     self.memory.append(state, action, reward, value, log_prob, timestep=t)
                     state = next_state
 
-                    if done or (t == timesteps):
+                    # use t > 1 to skip accidental collision at first timestep
+                    if (done or (t == timesteps)) and (t > 32):
                         # save results of current trial
                         results['total_reward'].append(total_reward)
                         results['timesteps'].append(t)
@@ -228,21 +232,27 @@ class CARLAgent(PPOAgent):
 
                         self.log(**{f'eval_{k}': v[-1] for k, v in results.items()})
 
-                        print(f'Trial-{trial} terminated after {t} timesteps in {round(time.time() - t0, 3)} with total'
-                              f' reward of {round(total_reward, 3)}.')
+                        print(f'Trial-{trials_done} terminated after {t} timesteps in {round(time.time() - t0, 3)} '
+                              f'with total reward of {round(total_reward, 3)}.')
+                        trials_done += 1
                         break
 
                 self.write_summaries()
                 self.memory.delete()
 
             # save average with standard-deviation of results over trials as json
-            avg_results = {k: float(np.mean(v)) for k, v in results.items()}
+            # avg_results = {k: float(np.mean(v)) for k, v in results.items()}
+            record = dict()
 
             for k, v in results.items():
-                avg_results[f'{k}_std'] = float(np.std(v))
+                record[k] = v
+                record[f'{k}_mean'] = float(np.mean(v))
+                record[f'{k}_std'] = float(np.std(v))
+                # avg_results[f'{k}_std'] = float(np.std(v))
 
             with open(save_path, 'w') as file:
-                json.dump(avg_results, fp=file)
+                # json.dump(avg_results, fp=file)
+                json.dump(record, fp=file, indent=2)
 
         finally:
             # restore data-augmentation intensity value
