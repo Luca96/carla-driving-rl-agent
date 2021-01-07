@@ -53,8 +53,8 @@ class FakeCARLAEnvironment(gym.Env):
 # TODO: imitation learning broken!!
 class CARLAgent(PPOAgent):
     # Default neural network architecture
-    DEFAULT_CONTROL = dict(units=256+64, num_layers=2, activation=utils.swish6)
-    DEFAULT_CONTROL_VALUE = dict(units=256+64, num_layers=2, activation=utils.swish6)
+    DEFAULT_CONTROL = dict(units=320, num_layers=2, activation=utils.swish6)
+    DEFAULT_CONTROL_VALUE = dict(units=320, num_layers=2, activation=utils.swish6)
     DEFAULT_DYNAMICS = dict(road=dict(units=16, num_layers=2, activation=tf.nn.relu6),
                             vehicle=dict(units=16, num_layers=2, activation=tf.nn.relu6),
                             navigation=dict(units=16, num_layers=2, activation=tf.nn.relu6),
@@ -223,7 +223,7 @@ class CARLAgent(PPOAgent):
                     # use t > 1 to skip accidental collision at first timestep
                     if (done or (t == timesteps)) and (t > 32):
                         # save results of current trial
-                        results['total_reward'].append(total_reward)
+                        results['total_reward'].append(-1000.0 if total_reward < -1000.0 else total_reward)
                         results['timesteps'].append(t)
                         results['collision_rate'].append(1.0 if self.env.should_terminate else 0.0)
                         results['similarity'].append(similarity / t)

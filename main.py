@@ -37,8 +37,6 @@ if __name__ == '__main__':
     #                             alpha=1.0, beta=1.0, clip=0.5, name='imitation-final')
 
     # TODO: ""Evaluation""
-    #  - evaluate the model on different horizons: 64, 128, 256, 512, 768, 1024
-    #  - set the time budget to 5km/h (or NO time budget at all!)
     #  - evaluate on town: 1, 2, 3, 7?, 10? (all available towns?)
     #  - use "random agent" as baseline
 
@@ -108,33 +106,23 @@ if __name__ == '__main__':
     #                             town=town, seeds='sample', initial_seed=seed)
 
     towns = [
-        'Town01',
-        'Town02',
-        'Town03', 'Town04', 'Town05', 'Town06', 'Town07', 'Town10']
-    steps = [256, 512, 768, 1024]
-    # towns2 = ['Town04', 'Town05', 'Town06',  'Town10']
-
-    # same weather
-    # evaluate(towns=['Town03', 'Town01', 'Town02', 'Town07'])
-
-    # evaluate(towns=towns, steps=256)
-    # evaluate(towns=towns2, steps=512)
-    # evaluate(towns=towns, steps=768)
-    # evaluate(towns=towns, steps=1024)
+        # 'Town01',
+        # 'Town02',
+        'Town03',
+        # 'Town04',
+        # 'Town05', 'Town06',
+        # 'Town07',
+        # 'Town10'
+    ]
 
     # TODO: compare with untrained agent, random agent, baseline architecture (old agent)
 
-    for mode in ['train', 'test']:
+    for mode in ['test']:
         for town in towns:
-            for traffic in ['no', 'regular', 'dense']:
+            for traffic in ['dense']:
                 for num_steps in [512]:
                     print(f'Evaluating [mode={mode}, town={town}, traffic={traffic}, steps={num_steps}]')
-                    learning.evaluate(mode, town=town, steps=num_steps, seeds=[42], traffic=traffic)
-
-    # evaluate(towns=['Town03', 'Town01', 'Town02', 'Town07'])
-    # evaluate(towns=['Town03', 'Town01', 'Town02', 'Town07'], steps=256)
-    # evaluate(towns=['Town03', 'Town01', 'Town02', 'Town07'], steps=768)
-    # evaluate(towns=['Town03', 'Town01', 'Town02', 'Town07'], steps=1024)
+                    learning.evaluate(mode, town=town, steps=num_steps, seeds=[42], traffic=traffic,
+                                      weights='stage-s5-random')
     exit()
-
     pygame.quit()

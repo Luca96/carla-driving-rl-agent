@@ -458,8 +458,8 @@ def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_eve
 
     agent_dict = define_agent(
         class_=CARLAgent, **kwargs,
-        batch_size=batch_size, name=stage_name, traces_dir=None, load=True, seed=seed,
-        advantage_scale=2.0, load_full=True,
+        batch_size=batch_size, name=stage_name, traces_dir=None, load=True,
+        advantage_scale=2.0, load_full=True, seed=seed,
         policy_lr=policy_lr,
         value_lr=value_lr,
         dynamics_lr=dynamics_lr,
@@ -499,10 +499,11 @@ def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_eve
 # -- EVALUATION
 # -------------------------------------------------------------------------------------------------
 
-def evaluate(mode: str, town: str, seeds: list, traffic: str, steps=512, trials=50):
+def evaluate(mode: str, town: str, seeds: list, traffic: str, steps=512, trials=50, weights='stage-s5'):
     def make_stage(weather):
         return stage_s5(episodes=1, timesteps=steps, batch_size=1, town=town, seed_regularization=True,
-                        weather=weather, aug_intensity=0.0, repeat_action=1, traffic=traffic)
+                        stage_name=weights,
+                        weather=weather, aug_intensity=0.0, repeat_action=1, traffic=traffic, log_mode=None)
 
     if mode == 'train':
         weather = None
@@ -522,5 +523,5 @@ def evaluate(mode: str, town: str, seeds: list, traffic: str, steps=512, trials=
     stage = make_stage(weather)
 
     for i, seed in enumerate(seeds):
-        stage.evaluate(name=f's5-{mode}-{steps}-{trials}-{town}-{traffic}-{seed}', timesteps=steps, trials=trials,
-                       town=None, seeds='sample', initial_seed=seed, close=i + 1 == len(seeds))
+        stage.evaluate(name=f'{weights}-{mode}-{steps}-{trials}-{town}-{traffic}-{seed}', timesteps=steps,
+                       trials=trials, town=None, seeds='sample', initial_seed=seed, close=i + 1 == len(seeds))
