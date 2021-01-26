@@ -142,6 +142,64 @@ class CARLAgent(PPOAgent):
 
         self.env.reset_info()
 
+    def record(self, name: str, timesteps: int, trials: int, seed=None, sample_seed=True, close=False):
+        assert trials > 0
+        assert timesteps > 0
+
+        if isinstance(seed, int):
+            self.set_random_seed(seed=seed)
+
+        try:
+            for trial in range(1, trials + 1):
+                self.memory = self.get_memory()
+
+                if sample_seed:
+                    self.set_random_seed(seed=random.randint(a=0, b=2**32 - 1))
+
+                record_path = utils.makedir(os.path.join('record', self.env.current_town, name, str(trial)))
+                self.env.set_record_path(path=record_path) 
+
+                preprocess_fn = self.preprocess()
+                self.reset()
+
+                state = self.env.reset()
+                t0 = time.time()
+                total_reward = 0.0
+
+                for t in range(1, timesteps + 1):
+                    if isinstance(state, dict):
+                        state = {f'state_{k}': v for k, v in state.items()}
+
+                    state = preprocess_fn(state)
+                    state = utils.to_tensor(state)
+
+                    # Agent prediction
+                    action, mean, std, log_prob, value = self.predict(state)
+                    action_env = self.convert_action(action)
+
+                    # Environment step
+                    next_state, reward, done, _ = self.env.step(action_env)
+                    total_reward += reward
+
+                    self.memory.append(state, action, reward, value, log_prob, timestep=t)
+                    state = next_state
+
+                    # use t > 1 to skip accidental collision at first timestep
+                    if (done or (t == timesteps)) and (t > 32):
+                        print(f'Trial-{trial} terminated after {t} timesteps in {round(time.time() - t0, 3)} '
+                              f'with total reward of {round(total_reward, 3)}.')
+
+                        with open(os.path.join(record_path, 'info.json'), 'w') as f:
+                            data = dict(reward=total_reward, timestep=t, weather=str(self.env.weather))
+                            json.dump(data, fp=f, indent=3)
+
+                        break
+
+                self.memory.delete()
+        finally:
+            if close:
+                self.env.close()
+
     def evaluate(self, name: str, timesteps: int, trials: int, seeds: Union[None, List[int]] = None,
                  town='Town03', initial_seed=None, close=False) -> dict:
         assert trials > 0
@@ -241,17 +299,14 @@ class CARLAgent(PPOAgent):
                 self.memory.delete()
 
             # save average with standard-deviation of results over trials as json
-            # avg_results = {k: float(np.mean(v)) for k, v in results.items()}
             record = dict()
 
             for k, v in results.items():
                 record[k] = v
                 record[f'{k}_mean'] = float(np.mean(v))
                 record[f'{k}_std'] = float(np.std(v))
-                # avg_results[f'{k}_std'] = float(np.std(v))
 
             with open(save_path, 'w') as file:
-                # json.dump(avg_results, fp=file)
                 json.dump(record, fp=file, indent=2)
 
         finally:
@@ -423,6 +478,7 @@ class CARLAgent(PPOAgent):
 
         return (value_loss + speed_loss + similarity_loss) * 0.25
 
+    # TODO: broken
     def imitation_learning(self, num_traces=np.inf, batch_size=None, shuffle_traces=True, alpha=1.0, beta=1.0, lr=1e-3,
                            clip_grad=1.0, optimizer='adam', save_every: Union[str, None] = 'end', epochs=1, seed=None,
                            validate_every=5, traces_dir='traces', shuffle_batches=False, shuffle_data=False,
@@ -795,53 +851,34 @@ class CARLAgent(PPOAgent):
         # @tf.function
         def augment_fn(states: list):
             state = prepare(states)
-            # state = state.copy()
             image = utils.to_float(state['state_image'])
 
             if alpha > 0.0:
-                # Color distortion
-                # image = aug.simclr.color_distortion(image, strength=alpha, seed=seed)
-
                 # Color Jitter:
                 if aug.tf_chance(seed=seed) < alpha:
                     image = aug.simclr.color_jitter(image, strength=alpha, seed=seed)
-                    # print('jitter', image.shape)
-                    # breakpoint()
 
                 # blur
                 if aug.tf_chance(seed=seed) < 0.25 * alpha:
                     blur_size = 3 if aug.tf_chance(seed=seed) >= 0.5 else 5
                     image = aug.tf_gaussian_blur(image, size=blur_size, seed=seed)
-                    # print('blur', image.shape)
-                    # breakpoint()
 
                 # noise
                 if aug.tf_chance(seed=seed) < 0.2 * alpha:
                     image = aug.tf_salt_and_pepper_batch(image, amount=0.1)
-                    # print('pepper', image.shape)
-                    # breakpoint()
 
                 if aug.tf_chance(seed=seed) < 0.33 * alpha:
                     image = aug.tf_gaussian_noise_batch(image, amount=0.10, std=0.075, seed=seed)
-                    # image = aug.tf_gaussian_noise_batch(image, amount=0.15, std=0.15, seed=seed)
-                    # print('gauss', image.shape)
-                    # breakpoint()
 
                 image = aug.tf_normalize_batch(image)
-                # print('norm', image.shape)
-                # breakpoint()
 
                 # cutout
                 if aug.tf_chance(seed=seed) < 0.15 * alpha:
                     image = aug.tf_cutout_batch(image, size=6, seed=seed)
-                    # print('cut', image.shape)
-                    # breakpoint()
 
                 # coarse dropout
                 if aug.tf_chance(seed=seed) < 0.15 * alpha:
                     image = aug.tf_coarse_dropout_batch(image, size=81, amount=0.04, seed=seed)
-                    # print('drop', image.shape)
-                    # breakpoint()
 
             state['state_image'] = image
             return state

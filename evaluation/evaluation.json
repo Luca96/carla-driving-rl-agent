@@ -1,0 +1,4616 @@
+{
+    "curriculum": {
+        "dense-Town01-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.12,
+                "median": 0.96
+            },
+            "waypoint_distance": {
+                "mean": 1.8,
+                "std": 0.9,
+                "median": 1.59
+            },
+            "speed": {
+                "mean": 7.29,
+                "std": 2.05,
+                "median": 8.08
+            },
+            "total_reward": {
+                "mean": 874.79,
+                "std": 643.64,
+                "median": 1109.75
+            },
+            "timesteps": {
+                "mean": 205.74,
+                "std": 82.26,
+                "median": 221.0
+            }
+        },
+        "no-Town01-test": {
+            "collision_rate": {
+                "mean": 0.82,
+                "std": 0.38,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.99,
+                "std": 0.01,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.03,
+                "std": 0.45,
+                "median": 0.87
+            },
+            "speed": {
+                "mean": 8.08,
+                "std": 1.4,
+                "median": 8.53
+            },
+            "total_reward": {
+                "mean": 2678.44,
+                "std": 1135.47,
+                "median": 2657.01
+            },
+            "timesteps": {
+                "mean": 346.48,
+                "std": 118.2,
+                "median": 351.5
+            }
+        },
+        "regular-Town01-test": {
+            "collision_rate": {
+                "mean": 0.74,
+                "std": 0.44,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.96,
+                "std": 0.09,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.41,
+                "std": 0.81,
+                "median": 1.32
+            },
+            "speed": {
+                "mean": 7.46,
+                "std": 2.26,
+                "median": 8.33
+            },
+            "total_reward": {
+                "mean": 1959.07,
+                "std": 1566.25,
+                "median": 2631.67
+            },
+            "timesteps": {
+                "mean": 325.26,
+                "std": 185.18,
+                "median": 382.0
+            }
+        },
+        "dense-Town02-test": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.05,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.24,
+                "std": 0.62,
+                "median": 1.1
+            },
+            "speed": {
+                "mean": 7.68,
+                "std": 3.12,
+                "median": 9.01
+            },
+            "total_reward": {
+                "mean": 2154.66,
+                "std": 1600.4,
+                "median": 2371.64
+            },
+            "timesteps": {
+                "mean": 293.62,
+                "std": 152.7,
+                "median": 296.0
+            }
+        },
+        "no-Town02-test": {
+            "collision_rate": {
+                "mean": 0.44,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.1,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 1.82,
+                "std": 1.07,
+                "median": 1.3
+            },
+            "speed": {
+                "mean": 9.08,
+                "std": 0.36,
+                "median": 9.23
+            },
+            "total_reward": {
+                "mean": 3371.81,
+                "std": 970.06,
+                "median": 3275.77
+            },
+            "timesteps": {
+                "mean": 445.32,
+                "std": 98.82,
+                "median": 512.0
+            }
+        },
+        "regular-Town02-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.06,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.21,
+                "std": 0.61,
+                "median": 1.02
+            },
+            "speed": {
+                "mean": 8.41,
+                "std": 2.38,
+                "median": 9.19
+            },
+            "total_reward": {
+                "mean": 1957.3,
+                "std": 1354.12,
+                "median": 2142.96
+            },
+            "timesteps": {
+                "mean": 257.52,
+                "std": 120.46,
+                "median": 249.5
+            }
+        },
+        "dense-Town03-test": {
+            "collision_rate": {
+                "mean": 0.74,
+                "std": 0.44,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.9,
+                "std": 0.28,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.43,
+                "std": 1.82,
+                "median": 2.23
+            },
+            "speed": {
+                "mean": 8.67,
+                "std": 1.53,
+                "median": 9.12
+            },
+            "total_reward": {
+                "mean": 2253.79,
+                "std": 1186.14,
+                "median": 2305.69
+            },
+            "timesteps": {
+                "mean": 394.32,
+                "std": 123.19,
+                "median": 417.0
+            }
+        },
+        "no-Town03-test": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.05,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 1.4,
+                "std": 0.65,
+                "median": 1.26
+            },
+            "speed": {
+                "mean": 8.27,
+                "std": 0.46,
+                "median": 8.31
+            },
+            "total_reward": {
+                "mean": 2874.75,
+                "std": 626.23,
+                "median": 2887.24
+            },
+            "timesteps": {
+                "mean": 406.3,
+                "std": 75.16,
+                "median": 417.5
+            }
+        },
+        "regular-Town03-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.98,
+                "std": 0.04,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.18,
+                "std": 0.76,
+                "median": 0.92
+            },
+            "speed": {
+                "mean": 7.57,
+                "std": 1.62,
+                "median": 7.95
+            },
+            "total_reward": {
+                "mean": 1446.96,
+                "std": 725.5,
+                "median": 1579.82
+            },
+            "timesteps": {
+                "mean": 241.04,
+                "std": 95.22,
+                "median": 239.0
+            }
+        },
+        "dense-Town04-test": {
+            "collision_rate": {
+                "mean": 0.66,
+                "std": 0.47,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.89,
+                "std": 0.34,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.73,
+                "std": 4.28,
+                "median": 2.16
+            },
+            "speed": {
+                "mean": 7.81,
+                "std": 1.69,
+                "median": 8.37
+            },
+            "total_reward": {
+                "mean": 1682.26,
+                "std": 1456.74,
+                "median": 2012.7
+            },
+            "timesteps": {
+                "mean": 392.34,
+                "std": 142.55,
+                "median": 446.5
+            }
+        },
+        "no-Town04-test": {
+            "collision_rate": {
+                "mean": 0.16,
+                "std": 0.37,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.25,
+                "median": 1.0
+            },
+            "waypoint_distance": {
+                "mean": 3.99,
+                "std": 3.97,
+                "median": 3.27
+            },
+            "speed": {
+                "mean": 9.64,
+                "std": 1.16,
+                "median": 9.81
+            },
+            "total_reward": {
+                "mean": 2636.38,
+                "std": 1724.54,
+                "median": 2536.13
+            },
+            "timesteps": {
+                "mean": 478.2,
+                "std": 92.3,
+                "median": 512.0
+            }
+        },
+        "regular-Town04-test": {
+            "collision_rate": {
+                "mean": 0.68,
+                "std": 0.47,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.19,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.81,
+                "std": 4.03,
+                "median": 2.66
+            },
+            "speed": {
+                "mean": 9.3,
+                "std": 2.46,
+                "median": 10.12
+            },
+            "total_reward": {
+                "mean": 2011.51,
+                "std": 1546.74,
+                "median": 2348.49
+            },
+            "timesteps": {
+                "mean": 374.64,
+                "std": 152.72,
+                "median": 437.5
+            }
+        },
+        "dense-Town05-test": {
+            "collision_rate": {
+                "mean": 0.82,
+                "std": 0.38,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.88,
+                "std": 0.23,
+                "median": 0.92
+            },
+            "waypoint_distance": {
+                "mean": 4.64,
+                "std": 3.13,
+                "median": 4.06
+            },
+            "speed": {
+                "mean": 8.46,
+                "std": 1.95,
+                "median": 9.22
+            },
+            "total_reward": {
+                "mean": 836.54,
+                "std": 819.84,
+                "median": 991.7
+            },
+            "timesteps": {
+                "mean": 316.58,
+                "std": 155.52,
+                "median": 328.5
+            }
+        },
+        "no-Town05-test": {
+            "collision_rate": {
+                "mean": 0.12,
+                "std": 0.32,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.17,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.44,
+                "std": 3.27,
+                "median": 1.98
+            },
+            "speed": {
+                "mean": 9.22,
+                "std": 0.19,
+                "median": 9.29
+            },
+            "total_reward": {
+                "mean": 2738.53,
+                "std": 1439.06,
+                "median": 3117.03
+            },
+            "timesteps": {
+                "mean": 504.4,
+                "std": 26.38,
+                "median": 512.0
+            }
+        },
+        "regular-Town05-test": {
+            "collision_rate": {
+                "mean": 0.48,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.9,
+                "std": 0.23,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.47,
+                "std": 3.81,
+                "median": 2.59
+            },
+            "speed": {
+                "mean": 7.91,
+                "std": 2.0,
+                "median": 8.37
+            },
+            "total_reward": {
+                "mean": 1667.18,
+                "std": 1333.84,
+                "median": 1955.84
+            },
+            "timesteps": {
+                "mean": 409.12,
+                "std": 158.7,
+                "median": 512.0
+            }
+        },
+        "dense-Town06-test": {
+            "collision_rate": {
+                "mean": 0.26,
+                "std": 0.44,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.14,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 5.21,
+                "std": 3.73,
+                "median": 5.9
+            },
+            "speed": {
+                "mean": 9.74,
+                "std": 1.41,
+                "median": 9.87
+            },
+            "total_reward": {
+                "mean": 1824.84,
+                "std": 1506.73,
+                "median": 915.47
+            },
+            "timesteps": {
+                "mean": 474.1,
+                "std": 101.1,
+                "median": 512.0
+            }
+        },
+        "no-Town06-test": {
+            "collision_rate": {
+                "mean": 0.12,
+                "std": 0.32,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.98,
+                "std": 0.03,
+                "median": 1.0
+            },
+            "waypoint_distance": {
+                "mean": 4.17,
+                "std": 3.83,
+                "median": 3.21
+            },
+            "speed": {
+                "mean": 9.16,
+                "std": 0.39,
+                "median": 9.28
+            },
+            "total_reward": {
+                "mean": 2552.45,
+                "std": 1810.43,
+                "median": 2226.63
+            },
+            "timesteps": {
+                "mean": 488.16,
+                "std": 74.64,
+                "median": 512.0
+            }
+        },
+        "regular-Town06-test": {
+            "collision_rate": {
+                "mean": 0.66,
+                "std": 0.47,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.16,
+                "median": 0.97
+            },
+            "waypoint_distance": {
+                "mean": 6.15,
+                "std": 3.76,
+                "median": 5.46
+            },
+            "speed": {
+                "mean": 9.97,
+                "std": 0.38,
+                "median": 10.09
+            },
+            "total_reward": {
+                "mean": 1450.3,
+                "std": 1024.4,
+                "median": 768.0
+            },
+            "timesteps": {
+                "mean": 439.16,
+                "std": 84.41,
+                "median": 481.0
+            }
+        },
+        "dense-Town07-test": {
+            "collision_rate": {
+                "mean": 0.6,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.87,
+                "std": 0.39,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.57,
+                "std": 2.85,
+                "median": 2.11
+            },
+            "speed": {
+                "mean": 7.76,
+                "std": 2.87,
+                "median": 9.11
+            },
+            "total_reward": {
+                "mean": 1881.9,
+                "std": 1552.34,
+                "median": 2349.88
+            },
+            "timesteps": {
+                "mean": 357.48,
+                "std": 182.98,
+                "median": 436.5
+            }
+        },
+        "no-Town07-test": {
+            "collision_rate": {
+                "mean": 0.76,
+                "std": 0.43,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.22,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.06,
+                "std": 3.38,
+                "median": 0.9
+            },
+            "speed": {
+                "mean": 7.83,
+                "std": 1.2,
+                "median": 8.0
+            },
+            "total_reward": {
+                "mean": 2417.0,
+                "std": 1050.39,
+                "median": 2681.77
+            },
+            "timesteps": {
+                "mean": 370.28,
+                "std": 122.54,
+                "median": 371.5
+            }
+        },
+        "regular-Town07-test": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.28,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 2.04,
+                "std": 2.95,
+                "median": 1.28
+            },
+            "speed": {
+                "mean": 7.2,
+                "std": 2.54,
+                "median": 7.96
+            },
+            "total_reward": {
+                "mean": 1255.78,
+                "std": 1196.52,
+                "median": 1438.48
+            },
+            "timesteps": {
+                "mean": 252.74,
+                "std": 152.28,
+                "median": 256.5
+            }
+        },
+        "dense-Town10-test": {
+            "collision_rate": {
+                "mean": 0.62,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.29,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 4.78,
+                "std": 5.72,
+                "median": 2.17
+            },
+            "speed": {
+                "mean": 8.89,
+                "std": 2.82,
+                "median": 9.71
+            },
+            "total_reward": {
+                "mean": 1597.28,
+                "std": 1673.77,
+                "median": 1313.08
+            },
+            "timesteps": {
+                "mean": 358.86,
+                "std": 173.76,
+                "median": 426.5
+            }
+        },
+        "no-Town10-test": {
+            "collision_rate": {
+                "mean": 0.1,
+                "std": 0.3,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.11,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.96,
+                "std": 2.73,
+                "median": 2.4
+            },
+            "speed": {
+                "mean": 9.21,
+                "std": 0.3,
+                "median": 9.26
+            },
+            "total_reward": {
+                "mean": 3215.69,
+                "std": 1354.11,
+                "median": 3161.85
+            },
+            "timesteps": {
+                "mean": 500.38,
+                "std": 42.53,
+                "median": 512.0
+            }
+        },
+        "regular-Town10-test": {
+            "collision_rate": {
+                "mean": 0.74,
+                "std": 0.44,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.81,
+                "std": 0.38,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 4.45,
+                "std": 5.16,
+                "median": 2.48
+            },
+            "speed": {
+                "mean": 9.13,
+                "std": 2.53,
+                "median": 9.85
+            },
+            "total_reward": {
+                "mean": 1571.75,
+                "std": 1558.64,
+                "median": 1437.26
+            },
+            "timesteps": {
+                "mean": 328.26,
+                "std": 175.1,
+                "median": 387.5
+            }
+        },
+        "dense-Town01-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.18,
+                "median": 0.95
+            },
+            "waypoint_distance": {
+                "mean": 2.0,
+                "std": 1.11,
+                "median": 1.82
+            },
+            "speed": {
+                "mean": 7.61,
+                "std": 2.05,
+                "median": 8.01
+            },
+            "total_reward": {
+                "mean": 871.14,
+                "std": 630.47,
+                "median": 1097.8
+            },
+            "timesteps": {
+                "mean": 205.8,
+                "std": 83.21,
+                "median": 213.0
+            }
+        },
+        "no-Town01-train": {
+            "collision_rate": {
+                "mean": 0.8,
+                "std": 0.4,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.99,
+                "std": 0.01,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.04,
+                "std": 0.43,
+                "median": 0.87
+            },
+            "speed": {
+                "mean": 8.05,
+                "std": 1.71,
+                "median": 8.69
+            },
+            "total_reward": {
+                "mean": 2771.89,
+                "std": 1233.57,
+                "median": 2790.32
+            },
+            "timesteps": {
+                "mean": 356.12,
+                "std": 131.86,
+                "median": 370.5
+            }
+        },
+        "regular-Town01-train": {
+            "collision_rate": {
+                "mean": 0.78,
+                "std": 0.41,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.22,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 1.93,
+                "std": 2.83,
+                "median": 1.32
+            },
+            "speed": {
+                "mean": 8.22,
+                "std": 2.24,
+                "median": 8.31
+            },
+            "total_reward": {
+                "mean": 2044.62,
+                "std": 1345.12,
+                "median": 2469.97
+            },
+            "timesteps": {
+                "mean": 337.22,
+                "std": 173.37,
+                "median": 384.5
+            }
+        },
+        "dense-Town02-train": {
+            "collision_rate": {
+                "mean": 0.8,
+                "std": 0.4,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.18,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.45,
+                "std": 1.51,
+                "median": 1.18
+            },
+            "speed": {
+                "mean": 7.84,
+                "std": 3.36,
+                "median": 9.39
+            },
+            "total_reward": {
+                "mean": 2383.64,
+                "std": 1781.56,
+                "median": 2611.49
+            },
+            "timesteps": {
+                "mean": 322.84,
+                "std": 161.48,
+                "median": 354.5
+            }
+        },
+        "no-Town02-train": {
+            "collision_rate": {
+                "mean": 0.6,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.08,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.63,
+                "std": 0.98,
+                "median": 1.16
+            },
+            "speed": {
+                "mean": 8.78,
+                "std": 1.12,
+                "median": 9.17
+            },
+            "total_reward": {
+                "mean": 3060.71,
+                "std": 1180.92,
+                "median": 2941.84
+            },
+            "timesteps": {
+                "mean": 401.28,
+                "std": 128.69,
+                "median": 466.0
+            }
+        },
+        "regular-Town02-train": {
+            "collision_rate": {
+                "mean": 0.94,
+                "std": 0.24,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.96,
+                "std": 0.05,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.27,
+                "std": 0.58,
+                "median": 1.1
+            },
+            "speed": {
+                "mean": 8.98,
+                "std": 1.85,
+                "median": 9.38
+            },
+            "total_reward": {
+                "mean": 2253.78,
+                "std": 1306.36,
+                "median": 2191.5
+            },
+            "timesteps": {
+                "mean": 293.82,
+                "std": 119.28,
+                "median": 274.0
+            }
+        },
+        "dense-Town03-train": {
+            "collision_rate": {
+                "mean": 0.84,
+                "std": 0.37,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.88,
+                "std": 0.29,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.48,
+                "std": 1.61,
+                "median": 2.27
+            },
+            "speed": {
+                "mean": 8.58,
+                "std": 1.62,
+                "median": 9.12
+            },
+            "total_reward": {
+                "mean": 2015.26,
+                "std": 1077.72,
+                "median": 1919.07
+            },
+            "timesteps": {
+                "mean": 375.94,
+                "std": 123.13,
+                "median": 397.5
+            }
+        },
+        "no-Town03-train": {
+            "collision_rate": {
+                "mean": 0.8,
+                "std": 0.4,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.05,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 1.43,
+                "std": 0.57,
+                "median": 1.34
+            },
+            "speed": {
+                "mean": 8.36,
+                "std": 0.47,
+                "median": 8.43
+            },
+            "total_reward": {
+                "mean": 3024.37,
+                "std": 670.03,
+                "median": 3025.07
+            },
+            "timesteps": {
+                "mean": 424.38,
+                "std": 73.36,
+                "median": 429.5
+            }
+        },
+        "regular-Town03-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.96,
+                "std": 0.08,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.57,
+                "std": 1.16,
+                "median": 1.16
+            },
+            "speed": {
+                "mean": 7.31,
+                "std": 2.05,
+                "median": 7.89
+            },
+            "total_reward": {
+                "mean": 1330.55,
+                "std": 831.72,
+                "median": 1556.5
+            },
+            "timesteps": {
+                "mean": 242.64,
+                "std": 114.71,
+                "median": 240.0
+            }
+        },
+        "dense-Town04-train": {
+            "collision_rate": {
+                "mean": 0.66,
+                "std": 0.47,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.24,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.34,
+                "std": 3.4,
+                "median": 1.87
+            },
+            "speed": {
+                "mean": 8.41,
+                "std": 1.8,
+                "median": 8.99
+            },
+            "total_reward": {
+                "mean": 1967.41,
+                "std": 1467.64,
+                "median": 2142.46
+            },
+            "timesteps": {
+                "mean": 392.2,
+                "std": 130.43,
+                "median": 415.0
+            }
+        },
+        "no-Town04-train": {
+            "collision_rate": {
+                "mean": 0.16,
+                "std": 0.37,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.25,
+                "median": 1.0
+            },
+            "waypoint_distance": {
+                "mean": 3.97,
+                "std": 4.03,
+                "median": 2.94
+            },
+            "speed": {
+                "mean": 9.77,
+                "std": 0.4,
+                "median": 9.81
+            },
+            "total_reward": {
+                "mean": 2734.85,
+                "std": 1729.05,
+                "median": 2437.32
+            },
+            "timesteps": {
+                "mean": 483.42,
+                "std": 76.67,
+                "median": 512.0
+            }
+        },
+        "regular-Town04-train": {
+            "collision_rate": {
+                "mean": 0.74,
+                "std": 0.44,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.25,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.67,
+                "std": 3.81,
+                "median": 2.89
+            },
+            "speed": {
+                "mean": 9.39,
+                "std": 2.57,
+                "median": 10.12
+            },
+            "total_reward": {
+                "mean": 1934.44,
+                "std": 1486.86,
+                "median": 2272.01
+            },
+            "timesteps": {
+                "mean": 361.38,
+                "std": 158.59,
+                "median": 414.0
+            }
+        },
+        "dense-Town05-train": {
+            "collision_rate": {
+                "mean": 0.86,
+                "std": 0.35,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.87,
+                "std": 0.25,
+                "median": 0.93
+            },
+            "waypoint_distance": {
+                "mean": 4.47,
+                "std": 2.59,
+                "median": 4.02
+            },
+            "speed": {
+                "mean": 8.54,
+                "std": 1.43,
+                "median": 9.01
+            },
+            "total_reward": {
+                "mean": 859.21,
+                "std": 747.79,
+                "median": 1032.48
+            },
+            "timesteps": {
+                "mean": 306.02,
+                "std": 129.97,
+                "median": 299.0
+            }
+        },
+        "no-Town05-train": {
+            "collision_rate": {
+                "mean": 0.18,
+                "std": 0.38,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.17,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.26,
+                "std": 3.14,
+                "median": 2.15
+            },
+            "speed": {
+                "mean": 9.17,
+                "std": 0.32,
+                "median": 9.29
+            },
+            "total_reward": {
+                "mean": 2760.94,
+                "std": 1421.29,
+                "median": 3128.22
+            },
+            "timesteps": {
+                "mean": 495.26,
+                "std": 43.94,
+                "median": 512.0
+            }
+        },
+        "regular-Town05-train": {
+            "collision_rate": {
+                "mean": 0.46,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.13,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.17,
+                "std": 3.01,
+                "median": 2.59
+            },
+            "speed": {
+                "mean": 8.0,
+                "std": 2.13,
+                "median": 8.39
+            },
+            "total_reward": {
+                "mean": 1722.76,
+                "std": 1352.04,
+                "median": 1986.61
+            },
+            "timesteps": {
+                "mean": 407.7,
+                "std": 157.63,
+                "median": 512.0
+            }
+        },
+        "dense-Town06-train": {
+            "collision_rate": {
+                "mean": 0.18,
+                "std": 0.38,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.96,
+                "std": 0.14,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 5.31,
+                "std": 3.74,
+                "median": 5.95
+            },
+            "speed": {
+                "mean": 9.82,
+                "std": 0.14,
+                "median": 9.87
+            },
+            "total_reward": {
+                "mean": 1935.81,
+                "std": 1504.58,
+                "median": 950.18
+            },
+            "timesteps": {
+                "mean": 495.9,
+                "std": 39.11,
+                "median": 512.0
+            }
+        },
+        "no-Town06-train": {
+            "collision_rate": {
+                "mean": 0.1,
+                "std": 0.3,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.98,
+                "std": 0.03,
+                "median": 1.0
+            },
+            "waypoint_distance": {
+                "mean": 4.19,
+                "std": 3.82,
+                "median": 3.2
+            },
+            "speed": {
+                "mean": 9.16,
+                "std": 0.45,
+                "median": 9.29
+            },
+            "total_reward": {
+                "mean": 2529.42,
+                "std": 1812.12,
+                "median": 2080.21
+            },
+            "timesteps": {
+                "mean": 488.98,
+                "std": 77.98,
+                "median": 512.0
+            }
+        },
+        "regular-Town06-train": {
+            "collision_rate": {
+                "mean": 0.68,
+                "std": 0.47,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.16,
+                "median": 0.97
+            },
+            "waypoint_distance": {
+                "mean": 5.95,
+                "std": 3.63,
+                "median": 5.42
+            },
+            "speed": {
+                "mean": 9.93,
+                "std": 0.42,
+                "median": 10.08
+            },
+            "total_reward": {
+                "mean": 1417.5,
+                "std": 977.51,
+                "median": 775.54
+            },
+            "timesteps": {
+                "mean": 427.08,
+                "std": 89.84,
+                "median": 462.0
+            }
+        },
+        "dense-Town07-train": {
+            "collision_rate": {
+                "mean": 0.64,
+                "std": 0.48,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.28,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.38,
+                "std": 1.8,
+                "median": 2.15
+            },
+            "speed": {
+                "mean": 7.82,
+                "std": 2.33,
+                "median": 9.05
+            },
+            "total_reward": {
+                "mean": 1814.31,
+                "std": 1392.14,
+                "median": 2146.39
+            },
+            "timesteps": {
+                "mean": 363.7,
+                "std": 166.68,
+                "median": 427.0
+            }
+        },
+        "no-Town07-train": {
+            "collision_rate": {
+                "mean": 0.8,
+                "std": 0.4,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.2,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.67,
+                "std": 2.41,
+                "median": 0.8
+            },
+            "speed": {
+                "mean": 7.64,
+                "std": 1.46,
+                "median": 7.91
+            },
+            "total_reward": {
+                "mean": 2425.07,
+                "std": 1091.27,
+                "median": 2664.51
+            },
+            "timesteps": {
+                "mean": 352.04,
+                "std": 128.73,
+                "median": 354.5
+            }
+        },
+        "regular-Town07-train": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.44,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 2.39,
+                "std": 3.23,
+                "median": 1.29
+            },
+            "speed": {
+                "mean": 7.65,
+                "std": 2.88,
+                "median": 7.93
+            },
+            "total_reward": {
+                "mean": 1089.87,
+                "std": 1177.8,
+                "median": 1368.07
+            },
+            "timesteps": {
+                "mean": 242.86,
+                "std": 156.04,
+                "median": 228.5
+            }
+        },
+        "dense-Town10-train": {
+            "collision_rate": {
+                "mean": 0.86,
+                "std": 0.35,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.76,
+                "std": 0.33,
+                "median": 0.88
+            },
+            "waypoint_distance": {
+                "mean": 6.14,
+                "std": 5.03,
+                "median": 4.91
+            },
+            "speed": {
+                "mean": 8.55,
+                "std": 2.53,
+                "median": 9.23
+            },
+            "total_reward": {
+                "mean": 780.58,
+                "std": 783.58,
+                "median": 738.75
+            },
+            "timesteps": {
+                "mean": 310.64,
+                "std": 169.69,
+                "median": 331.0
+            }
+        },
+        "no-Town10-train": {
+            "collision_rate": {
+                "mean": 0.1,
+                "std": 0.3,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.1,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.05,
+                "std": 2.52,
+                "median": 2.2
+            },
+            "speed": {
+                "mean": 9.21,
+                "std": 0.36,
+                "median": 9.31
+            },
+            "total_reward": {
+                "mean": 2958.42,
+                "std": 1317.74,
+                "median": 3093.98
+            },
+            "timesteps": {
+                "mean": 502.42,
+                "std": 36.3,
+                "median": 512.0
+            }
+        },
+        "regular-Town10-train": {
+            "collision_rate": {
+                "mean": 0.44,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.86,
+                "std": 0.22,
+                "median": 0.96
+            },
+            "waypoint_distance": {
+                "mean": 4.4,
+                "std": 5.16,
+                "median": 2.41
+            },
+            "speed": {
+                "mean": 7.57,
+                "std": 2.03,
+                "median": 8.38
+            },
+            "total_reward": {
+                "mean": 1647.36,
+                "std": 1476.27,
+                "median": 1718.14
+            },
+            "timesteps": {
+                "mean": 402.96,
+                "std": 175.71,
+                "median": 512.0
+            }
+        }
+    },
+    "standard": {
+        "dense-Town01-test": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.25,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 2.39,
+                "std": 2.76,
+                "median": 1.88
+            },
+            "speed": {
+                "mean": 8.28,
+                "std": 2.31,
+                "median": 8.65
+            },
+            "total_reward": {
+                "mean": 1415.41,
+                "std": 1272.17,
+                "median": 1612.67
+            },
+            "timesteps": {
+                "mean": 267.56,
+                "std": 156.12,
+                "median": 268.5
+            }
+        },
+        "no-Town01-test": {
+            "collision_rate": {
+                "mean": 0.6,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.03,
+                "median": 0.97
+            },
+            "waypoint_distance": {
+                "mean": 1.82,
+                "std": 1.14,
+                "median": 1.7
+            },
+            "speed": {
+                "mean": 9.07,
+                "std": 1.23,
+                "median": 9.43
+            },
+            "total_reward": {
+                "mean": 2968.2,
+                "std": 1237.6,
+                "median": 2546.25
+            },
+            "timesteps": {
+                "mean": 406.4,
+                "std": 114.35,
+                "median": 422.0
+            }
+        },
+        "regular-Town01-test": {
+            "collision_rate": {
+                "mean": 0.72,
+                "std": 0.45,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.08,
+                "median": 1.0
+            },
+            "waypoint_distance": {
+                "mean": 1.47,
+                "std": 1.02,
+                "median": 1.1
+            },
+            "speed": {
+                "mean": 9.58,
+                "std": 1.59,
+                "median": 9.63
+            },
+            "total_reward": {
+                "mean": 2769.41,
+                "std": 1585.38,
+                "median": 2544.43
+            },
+            "timesteps": {
+                "mean": 348.52,
+                "std": 151.91,
+                "median": 354.5
+            }
+        },
+        "dense-Town02-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.17,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 2.18,
+                "std": 1.68,
+                "median": 1.52
+            },
+            "speed": {
+                "mean": 7.6,
+                "std": 2.72,
+                "median": 8.59
+            },
+            "total_reward": {
+                "mean": 1540.91,
+                "std": 1289.06,
+                "median": 1700.04
+            },
+            "timesteps": {
+                "mean": 299.48,
+                "std": 146.05,
+                "median": 343.0
+            }
+        },
+        "no-Town02-test": {
+            "collision_rate": {
+                "mean": 0.96,
+                "std": 0.2,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.12,
+                "median": 0.95
+            },
+            "waypoint_distance": {
+                "mean": 2.62,
+                "std": 0.94,
+                "median": 2.49
+            },
+            "speed": {
+                "mean": 8.63,
+                "std": 1.61,
+                "median": 8.74
+            },
+            "total_reward": {
+                "mean": 1636.29,
+                "std": 714.75,
+                "median": 1510.4
+            },
+            "timesteps": {
+                "mean": 333.64,
+                "std": 102.87,
+                "median": 326.5
+            }
+        },
+        "regular-Town02-test": {
+            "collision_rate": {
+                "mean": 0.76,
+                "std": 0.43,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.21,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.81,
+                "std": 1.28,
+                "median": 1.48
+            },
+            "speed": {
+                "mean": 7.81,
+                "std": 2.25,
+                "median": 8.56
+            },
+            "total_reward": {
+                "mean": 2115.49,
+                "std": 1467.99,
+                "median": 2065.25
+            },
+            "timesteps": {
+                "mean": 360.18,
+                "std": 150.65,
+                "median": 391.0
+            }
+        },
+        "dense-Town03-test": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.79,
+                "std": 0.35,
+                "median": 0.92
+            },
+            "waypoint_distance": {
+                "mean": 5.13,
+                "std": 5.05,
+                "median": 3.71
+            },
+            "speed": {
+                "mean": 7.96,
+                "std": 2.74,
+                "median": 9.07
+            },
+            "total_reward": {
+                "mean": 584.93,
+                "std": 849.16,
+                "median": 494.01
+            },
+            "timesteps": {
+                "mean": 270.32,
+                "std": 171.62,
+                "median": 292.0
+            }
+        },
+        "no-Town03-test": {
+            "collision_rate": {
+                "mean": 0.12,
+                "std": 0.32,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.11,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.1,
+                "std": 2.76,
+                "median": 2.48
+            },
+            "speed": {
+                "mean": 9.47,
+                "std": 0.53,
+                "median": 9.48
+            },
+            "total_reward": {
+                "mean": 3048.63,
+                "std": 1526.7,
+                "median": 2918.95
+            },
+            "timesteps": {
+                "mean": 500.0,
+                "std": 40.75,
+                "median": 512.0
+            }
+        },
+        "regular-Town03-test": {
+            "collision_rate": {
+                "mean": 0.52,
+                "std": 0.5,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.86,
+                "std": 0.26,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 4.32,
+                "std": 4.85,
+                "median": 2.68
+            },
+            "speed": {
+                "mean": 7.87,
+                "std": 2.39,
+                "median": 8.36
+            },
+            "total_reward": {
+                "mean": 1584.35,
+                "std": 1363.42,
+                "median": 1581.04
+            },
+            "timesteps": {
+                "mean": 401.16,
+                "std": 168.21,
+                "median": 506.5
+            }
+        },
+        "dense-Town04-test": {
+            "collision_rate": {
+                "mean": 0.54,
+                "std": 0.5,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.24,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 4.37,
+                "std": 4.44,
+                "median": 2.67
+            },
+            "speed": {
+                "mean": 8.87,
+                "std": 2.16,
+                "median": 9.29
+            },
+            "total_reward": {
+                "mean": 1662.43,
+                "std": 1301.49,
+                "median": 1628.62
+            },
+            "timesteps": {
+                "mean": 406.94,
+                "std": 137.89,
+                "median": 458.5
+            }
+        },
+        "no-Town04-test": {
+            "collision_rate": {
+                "mean": 0.64,
+                "std": 0.48,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.22,
+                "median": 0.97
+            },
+            "waypoint_distance": {
+                "mean": 4.01,
+                "std": 3.68,
+                "median": 3.09
+            },
+            "speed": {
+                "mean": 9.66,
+                "std": 0.79,
+                "median": 9.82
+            },
+            "total_reward": {
+                "mean": 2095.59,
+                "std": 1096.85,
+                "median": 2343.95
+            },
+            "timesteps": {
+                "mean": 425.34,
+                "std": 91.83,
+                "median": 455.0
+            }
+        },
+        "regular-Town04-test": {
+            "collision_rate": {
+                "mean": 0.5,
+                "std": 0.5,
+                "median": 0.5
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.2,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 4.2,
+                "std": 4.61,
+                "median": 2.28
+            },
+            "speed": {
+                "mean": 9.56,
+                "std": 2.78,
+                "median": 10.42
+            },
+            "total_reward": {
+                "mean": 1985.07,
+                "std": 1864.5,
+                "median": 1445.58
+            },
+            "timesteps": {
+                "mean": 389.94,
+                "std": 166.64,
+                "median": 501.5
+            }
+        },
+        "dense-Town05-test": {
+            "collision_rate": {
+                "mean": 0.94,
+                "std": 0.24,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.89,
+                "std": 0.13,
+                "median": 0.91
+            },
+            "waypoint_distance": {
+                "mean": 4.15,
+                "std": 3.01,
+                "median": 4.03
+            },
+            "speed": {
+                "mean": 8.24,
+                "std": 2.45,
+                "median": 9.08
+            },
+            "total_reward": {
+                "mean": 657.23,
+                "std": 819.07,
+                "median": 685.09
+            },
+            "timesteps": {
+                "mean": 253.6,
+                "std": 135.27,
+                "median": 265.0
+            }
+        },
+        "no-Town05-test": {
+            "collision_rate": {
+                "mean": 0.06,
+                "std": 0.24,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.18,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.54,
+                "std": 3.42,
+                "median": 2.4
+            },
+            "speed": {
+                "mean": 9.62,
+                "std": 0.44,
+                "median": 9.57
+            },
+            "total_reward": {
+                "mean": 2973.75,
+                "std": 1706.63,
+                "median": 3141.85
+            },
+            "timesteps": {
+                "mean": 511.08,
+                "std": 4.76,
+                "median": 512.0
+            }
+        },
+        "regular-Town05-test": {
+            "collision_rate": {
+                "mean": 0.38,
+                "std": 0.49,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.18,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.55,
+                "std": 3.13,
+                "median": 3.19
+            },
+            "speed": {
+                "mean": 8.23,
+                "std": 1.58,
+                "median": 8.43
+            },
+            "total_reward": {
+                "mean": 1695.87,
+                "std": 1257.82,
+                "median": 1721.59
+            },
+            "timesteps": {
+                "mean": 416.38,
+                "std": 154.89,
+                "median": 512.0
+            }
+        },
+        "dense-Town06-test": {
+            "collision_rate": {
+                "mean": 0.12,
+                "std": 0.32,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.96,
+                "std": 0.15,
+                "median": 1.0
+            },
+            "waypoint_distance": {
+                "mean": 4.99,
+                "std": 3.85,
+                "median": 4.82
+            },
+            "speed": {
+                "mean": 9.93,
+                "std": 0.77,
+                "median": 9.89
+            },
+            "total_reward": {
+                "mean": 2080.25,
+                "std": 1557.66,
+                "median": 1105.23
+            },
+            "timesteps": {
+                "mean": 501.78,
+                "std": 37.37,
+                "median": 512.0
+            }
+        },
+        "no-Town06-test": {
+            "collision_rate": {
+                "mean": 0.18,
+                "std": 0.38,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.98,
+                "std": 0.02,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 4.16,
+                "std": 3.63,
+                "median": 2.84
+            },
+            "speed": {
+                "mean": 9.1,
+                "std": 0.79,
+                "median": 9.0
+            },
+            "total_reward": {
+                "mean": 2244.75,
+                "std": 1435.22,
+                "median": 2304.35
+            },
+            "timesteps": {
+                "mean": 483.0,
+                "std": 81.55,
+                "median": 512.0
+            }
+        },
+        "regular-Town06-test": {
+            "collision_rate": {
+                "mean": 0.34,
+                "std": 0.47,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.16,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 5.58,
+                "std": 4.1,
+                "median": 4.65
+            },
+            "speed": {
+                "mean": 9.83,
+                "std": 1.0,
+                "median": 9.86
+            },
+            "total_reward": {
+                "mean": 1965.13,
+                "std": 1702.94,
+                "median": 894.01
+            },
+            "timesteps": {
+                "mean": 468.92,
+                "std": 87.35,
+                "median": 512.0
+            }
+        },
+        "dense-Town07-test": {
+            "collision_rate": {
+                "mean": 0.82,
+                "std": 0.38,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.87,
+                "std": 0.38,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.57,
+                "std": 2.88,
+                "median": 1.44
+            },
+            "speed": {
+                "mean": 7.71,
+                "std": 3.85,
+                "median": 8.12
+            },
+            "total_reward": {
+                "mean": 702.12,
+                "std": 1427.13,
+                "median": 590.81
+            },
+            "timesteps": {
+                "mean": 217.12,
+                "std": 184.27,
+                "median": 153.5
+            }
+        },
+        "no-Town07-test": {
+            "collision_rate": {
+                "mean": 0.76,
+                "std": 0.43,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.23,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.14,
+                "std": 3.59,
+                "median": 0.91
+            },
+            "speed": {
+                "mean": 8.05,
+                "std": 0.83,
+                "median": 8.16
+            },
+            "total_reward": {
+                "mean": 2422.05,
+                "std": 1005.73,
+                "median": 2670.68
+            },
+            "timesteps": {
+                "mean": 374.6,
+                "std": 106.48,
+                "median": 364.0
+            }
+        },
+        "regular-Town07-test": {
+            "collision_rate": {
+                "mean": 0.84,
+                "std": 0.37,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.79,
+                "std": 0.51,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 2.05,
+                "std": 2.09,
+                "median": 1.03
+            },
+            "speed": {
+                "mean": 7.25,
+                "std": 3.26,
+                "median": 8.11
+            },
+            "total_reward": {
+                "mean": 1067.01,
+                "std": 1229.23,
+                "median": 1308.77
+            },
+            "timesteps": {
+                "mean": 238.98,
+                "std": 174.05,
+                "median": 225.5
+            }
+        },
+        "dense-Town10-test": {
+            "collision_rate": {
+                "mean": 0.46,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.19,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 4.01,
+                "std": 3.27,
+                "median": 2.97
+            },
+            "speed": {
+                "mean": 9.25,
+                "std": 0.77,
+                "median": 9.27
+            },
+            "total_reward": {
+                "mean": 1987.1,
+                "std": 868.91,
+                "median": 2095.43
+            },
+            "timesteps": {
+                "mean": 461.88,
+                "std": 81.09,
+                "median": 512.0
+            }
+        },
+        "no-Town10-test": {
+            "collision_rate": {
+                "mean": 0.26,
+                "std": 0.44,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.04,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 4.01,
+                "std": 3.37,
+                "median": 3.71
+            },
+            "speed": {
+                "mean": 8.66,
+                "std": 0.75,
+                "median": 8.6
+            },
+            "total_reward": {
+                "mean": 2326.95,
+                "std": 1476.22,
+                "median": 2233.86
+            },
+            "timesteps": {
+                "mean": 484.02,
+                "std": 56.48,
+                "median": 512.0
+            }
+        },
+        "regular-Town10-test": {
+            "collision_rate": {
+                "mean": 0.48,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.15,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 5.34,
+                "std": 3.88,
+                "median": 4.45
+            },
+            "speed": {
+                "mean": 9.35,
+                "std": 0.81,
+                "median": 9.3
+            },
+            "total_reward": {
+                "mean": 1611.56,
+                "std": 1443.13,
+                "median": 774.33
+            },
+            "timesteps": {
+                "mean": 427.44,
+                "std": 110.14,
+                "median": 512.0
+            }
+        },
+        "dense-Town01-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.15,
+                "median": 0.95
+            },
+            "waypoint_distance": {
+                "mean": 2.11,
+                "std": 1.14,
+                "median": 2.0
+            },
+            "speed": {
+                "mean": 8.09,
+                "std": 2.07,
+                "median": 8.41
+            },
+            "total_reward": {
+                "mean": 915.57,
+                "std": 686.81,
+                "median": 1135.15
+            },
+            "timesteps": {
+                "mean": 204.4,
+                "std": 98.16,
+                "median": 208.0
+            }
+        },
+        "no-Town01-train": {
+            "collision_rate": {
+                "mean": 0.6,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.99,
+                "std": 0.01,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.22,
+                "std": 0.66,
+                "median": 0.93
+            },
+            "speed": {
+                "mean": 8.47,
+                "std": 1.56,
+                "median": 9.03
+            },
+            "total_reward": {
+                "mean": 2957.27,
+                "std": 1306.01,
+                "median": 2619.37
+            },
+            "timesteps": {
+                "mean": 381.34,
+                "std": 124.96,
+                "median": 369.5
+            }
+        },
+        "regular-Town01-train": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.88,
+                "std": 0.3,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.61,
+                "std": 1.4,
+                "median": 1.13
+            },
+            "speed": {
+                "mean": 7.97,
+                "std": 2.19,
+                "median": 8.38
+            },
+            "total_reward": {
+                "mean": 1786.03,
+                "std": 1355.96,
+                "median": 1858.48
+            },
+            "timesteps": {
+                "mean": 290.72,
+                "std": 157.39,
+                "median": 296.0
+            }
+        },
+        "dense-Town02-train": {
+            "collision_rate": {
+                "mean": 0.8,
+                "std": 0.4,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.12,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.71,
+                "std": 1.19,
+                "median": 1.26
+            },
+            "speed": {
+                "mean": 7.91,
+                "std": 3.46,
+                "median": 9.4
+            },
+            "total_reward": {
+                "mean": 2059.58,
+                "std": 1734.8,
+                "median": 2162.29
+            },
+            "timesteps": {
+                "mean": 310.24,
+                "std": 168.0,
+                "median": 339.0
+            }
+        },
+        "no-Town02-train": {
+            "collision_rate": {
+                "mean": 0.68,
+                "std": 0.47,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.1,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.79,
+                "std": 1.38,
+                "median": 1.37
+            },
+            "speed": {
+                "mean": 8.83,
+                "std": 2.03,
+                "median": 9.34
+            },
+            "total_reward": {
+                "mean": 2939.11,
+                "std": 1207.26,
+                "median": 2908.76
+            },
+            "timesteps": {
+                "mean": 391.24,
+                "std": 134.46,
+                "median": 430.0
+            }
+        },
+        "regular-Town02-train": {
+            "collision_rate": {
+                "mean": 0.86,
+                "std": 0.35,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.94,
+                "std": 0.18,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.72,
+                "std": 1.53,
+                "median": 1.12
+            },
+            "speed": {
+                "mean": 8.52,
+                "std": 2.55,
+                "median": 9.12
+            },
+            "total_reward": {
+                "mean": 1926.41,
+                "std": 1379.05,
+                "median": 2053.9
+            },
+            "timesteps": {
+                "mean": 295.22,
+                "std": 147.75,
+                "median": 287.0
+            }
+        },
+        "dense-Town03-train": {
+            "collision_rate": {
+                "mean": 0.82,
+                "std": 0.38,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.18,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 2.26,
+                "std": 1.1,
+                "median": 2.25
+            },
+            "speed": {
+                "mean": 8.8,
+                "std": 1.97,
+                "median": 9.26
+            },
+            "total_reward": {
+                "mean": 2264.48,
+                "std": 1264.32,
+                "median": 2166.03
+            },
+            "timesteps": {
+                "mean": 384.34,
+                "std": 134.12,
+                "median": 424.0
+            }
+        },
+        "no-Town03-train": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.12,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 1.62,
+                "std": 0.97,
+                "median": 1.31
+            },
+            "speed": {
+                "mean": 8.37,
+                "std": 1.06,
+                "median": 8.48
+            },
+            "total_reward": {
+                "mean": 2660.13,
+                "std": 770.88,
+                "median": 2669.97
+            },
+            "timesteps": {
+                "mean": 392.3,
+                "std": 93.81,
+                "median": 392.5
+            }
+        },
+        "regular-Town03-train": {
+            "collision_rate": {
+                "mean": 0.96,
+                "std": 0.2,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.06,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.47,
+                "std": 1.11,
+                "median": 1.08
+            },
+            "speed": {
+                "mean": 8.08,
+                "std": 2.13,
+                "median": 8.55
+            },
+            "total_reward": {
+                "mean": 1837.27,
+                "std": 1049.32,
+                "median": 1810.7
+            },
+            "timesteps": {
+                "mean": 279.34,
+                "std": 118.91,
+                "median": 272.5
+            }
+        },
+        "dense-Town04-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.89,
+                "std": 0.22,
+                "median": 0.94
+            },
+            "waypoint_distance": {
+                "mean": 3.54,
+                "std": 3.93,
+                "median": 2.22
+            },
+            "speed": {
+                "mean": 8.25,
+                "std": 1.8,
+                "median": 8.37
+            },
+            "total_reward": {
+                "mean": 766.59,
+                "std": 636.9,
+                "median": 956.21
+            },
+            "timesteps": {
+                "mean": 201.18,
+                "std": 88.44,
+                "median": 213.5
+            }
+        },
+        "no-Town04-train": {
+            "collision_rate": {
+                "mean": 0.4,
+                "std": 0.49,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.92,
+                "std": 0.24,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 4.06,
+                "std": 3.88,
+                "median": 2.98
+            },
+            "speed": {
+                "mean": 9.69,
+                "std": 0.84,
+                "median": 9.83
+            },
+            "total_reward": {
+                "mean": 2383.81,
+                "std": 1347.13,
+                "median": 2393.56
+            },
+            "timesteps": {
+                "mean": 467.9,
+                "std": 72.02,
+                "median": 512.0
+            }
+        },
+        "regular-Town04-train": {
+            "collision_rate": {
+                "mean": 0.7,
+                "std": 0.46,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.23,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.19,
+                "std": 3.47,
+                "median": 2.2
+            },
+            "speed": {
+                "mean": 8.25,
+                "std": 1.58,
+                "median": 8.51
+            },
+            "total_reward": {
+                "mean": 1786.7,
+                "std": 1294.89,
+                "median": 1729.14
+            },
+            "timesteps": {
+                "mean": 360.88,
+                "std": 145.87,
+                "median": 381.0
+            }
+        },
+        "dense-Town05-train": {
+            "collision_rate": {
+                "mean": 0.34,
+                "std": 0.47,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.18,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 4.02,
+                "std": 3.29,
+                "median": 2.77
+            },
+            "speed": {
+                "mean": 10.3,
+                "std": 0.84,
+                "median": 10.33
+            },
+            "total_reward": {
+                "mean": 2628.57,
+                "std": 1414.13,
+                "median": 2754.98
+            },
+            "timesteps": {
+                "mean": 474.72,
+                "std": 67.04,
+                "median": 512.0
+            }
+        },
+        "no-Town05-train": {
+            "collision_rate": {
+                "mean": 0.08,
+                "std": 0.27,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.88,
+                "std": 0.2,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.9,
+                "std": 3.88,
+                "median": 2.72
+            },
+            "speed": {
+                "mean": 9.85,
+                "std": 0.73,
+                "median": 9.73
+            },
+            "total_reward": {
+                "mean": 3023.91,
+                "std": 1693.9,
+                "median": 3049.28
+            },
+            "timesteps": {
+                "mean": 503.38,
+                "std": 40.38,
+                "median": 512.0
+            }
+        },
+        "regular-Town05-train": {
+            "collision_rate": {
+                "mean": 0.58,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.91,
+                "std": 0.2,
+                "median": 0.96
+            },
+            "waypoint_distance": {
+                "mean": 3.67,
+                "std": 3.1,
+                "median": 2.71
+            },
+            "speed": {
+                "mean": 9.95,
+                "std": 1.25,
+                "median": 10.14
+            },
+            "total_reward": {
+                "mean": 2161.27,
+                "std": 1251.4,
+                "median": 2044.69
+            },
+            "timesteps": {
+                "mean": 413.88,
+                "std": 117.29,
+                "median": 454.0
+            }
+        },
+        "dense-Town06-train": {
+            "collision_rate": {
+                "mean": 0.34,
+                "std": 0.47,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.93,
+                "std": 0.19,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 3.98,
+                "std": 3.44,
+                "median": 2.97
+            },
+            "speed": {
+                "mean": 9.23,
+                "std": 0.63,
+                "median": 9.25
+            },
+            "total_reward": {
+                "mean": 2069.33,
+                "std": 887.06,
+                "median": 2154.41
+            },
+            "timesteps": {
+                "mean": 471.92,
+                "std": 78.22,
+                "median": 512.0
+            }
+        },
+        "no-Town06-train": {
+            "collision_rate": {
+                "mean": 0.36,
+                "std": 0.48,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.97,
+                "std": 0.04,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 3.83,
+                "std": 3.33,
+                "median": 3.22
+            },
+            "speed": {
+                "mean": 8.55,
+                "std": 1.24,
+                "median": 8.7
+            },
+            "total_reward": {
+                "mean": 2277.01,
+                "std": 1502.59,
+                "median": 2237.86
+            },
+            "timesteps": {
+                "mean": 462.88,
+                "std": 93.23,
+                "median": 512.0
+            }
+        },
+        "regular-Town06-train": {
+            "collision_rate": {
+                "mean": 0.44,
+                "std": 0.5,
+                "median": 0.0
+            },
+            "similarity": {
+                "mean": 0.95,
+                "std": 0.15,
+                "median": 0.98
+            },
+            "waypoint_distance": {
+                "mean": 5.59,
+                "std": 3.81,
+                "median": 5.02
+            },
+            "speed": {
+                "mean": 9.37,
+                "std": 0.78,
+                "median": 9.36
+            },
+            "total_reward": {
+                "mean": 1546.91,
+                "std": 1323.56,
+                "median": 776.0
+            },
+            "timesteps": {
+                "mean": 439.16,
+                "std": 94.93,
+                "median": 512.0
+            }
+        },
+        "dense-Town07-train": {
+            "collision_rate": {
+                "mean": 0.94,
+                "std": 0.24,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.84,
+                "std": 0.43,
+                "median": 0.97
+            },
+            "waypoint_distance": {
+                "mean": 2.45,
+                "std": 3.28,
+                "median": 1.34
+            },
+            "speed": {
+                "mean": 6.91,
+                "std": 3.08,
+                "median": 7.76
+            },
+            "total_reward": {
+                "mean": 395.77,
+                "std": 906.04,
+                "median": 536.55
+            },
+            "timesteps": {
+                "mean": 182.02,
+                "std": 141.43,
+                "median": 169.0
+            }
+        },
+        "no-Town07-train": {
+            "collision_rate": {
+                "mean": 0.58,
+                "std": 0.49,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.89,
+                "std": 0.24,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.57,
+                "std": 3.52,
+                "median": 1.27
+            },
+            "speed": {
+                "mean": 9.12,
+                "std": 1.24,
+                "median": 9.39
+            },
+            "total_reward": {
+                "mean": 2976.93,
+                "std": 1420.25,
+                "median": 3029.21
+            },
+            "timesteps": {
+                "mean": 411.66,
+                "std": 119.78,
+                "median": 476.0
+            }
+        },
+        "regular-Town07-train": {
+            "collision_rate": {
+                "mean": 0.74,
+                "std": 0.44,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.84,
+                "std": 0.46,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.68,
+                "std": 1.88,
+                "median": 0.84
+            },
+            "speed": {
+                "mean": 7.02,
+                "std": 2.85,
+                "median": 7.7
+            },
+            "total_reward": {
+                "mean": 1314.68,
+                "std": 1591.83,
+                "median": 1237.31
+            },
+            "timesteps": {
+                "mean": 271.08,
+                "std": 191.07,
+                "median": 292.5
+            }
+        },
+        "dense-Town10-train": {
+            "collision_rate": {
+                "mean": 0.76,
+                "std": 0.43,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.4,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.15,
+                "std": 2.68,
+                "median": 1.08
+            },
+            "speed": {
+                "mean": 7.9,
+                "std": 4.08,
+                "median": 9.35
+            },
+            "total_reward": {
+                "mean": 1780.54,
+                "std": 2114.83,
+                "median": 2050.14
+            },
+            "timesteps": {
+                "mean": 277.54,
+                "std": 201.36,
+                "median": 270.0
+            }
+        },
+        "no-Town10-train": {
+            "collision_rate": {
+                "mean": 0.52,
+                "std": 0.5,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.9,
+                "std": 0.24,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 2.34,
+                "std": 2.9,
+                "median": 1.18
+            },
+            "speed": {
+                "mean": 9.1,
+                "std": 1.27,
+                "median": 9.44
+            },
+            "total_reward": {
+                "mean": 2839.81,
+                "std": 1448.36,
+                "median": 2635.95
+            },
+            "timesteps": {
+                "mean": 381.86,
+                "std": 149.14,
+                "median": 494.0
+            }
+        },
+        "regular-Town10-train": {
+            "collision_rate": {
+                "mean": 0.96,
+                "std": 0.2,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.84,
+                "std": 0.43,
+                "median": 0.99
+            },
+            "waypoint_distance": {
+                "mean": 1.95,
+                "std": 2.3,
+                "median": 1.0
+            },
+            "speed": {
+                "mean": 7.15,
+                "std": 3.55,
+                "median": 8.58
+            },
+            "total_reward": {
+                "mean": 894.8,
+                "std": 1460.52,
+                "median": 1352.35
+            },
+            "timesteps": {
+                "mean": 205.92,
+                "std": 164.12,
+                "median": 203.0
+            }
+        }
+    },
+    "untrained": {
+        "dense-Town01-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.81,
+                "std": 0.28,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 2.73,
+                "std": 3.1,
+                "median": 1.7
+            },
+            "speed": {
+                "mean": 6.45,
+                "std": 2.46,
+                "median": 6.23
+            },
+            "total_reward": {
+                "mean": 398.9,
+                "std": 482.65,
+                "median": 677.71
+            },
+            "timesteps": {
+                "mean": 170.8,
+                "std": 80.18,
+                "median": 169.5
+            }
+        },
+        "no-Town01-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.86,
+                "std": 0.12,
+                "median": 0.88
+            },
+            "waypoint_distance": {
+                "mean": 2.54,
+                "std": 1.02,
+                "median": 2.26
+            },
+            "speed": {
+                "mean": 6.13,
+                "std": 0.81,
+                "median": 6.23
+            },
+            "total_reward": {
+                "mean": 752.38,
+                "std": 154.6,
+                "median": 750.63
+            },
+            "timesteps": {
+                "mean": 234.06,
+                "std": 49.32,
+                "median": 228.0
+            }
+        },
+        "regular-Town01-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.84,
+                "std": 0.3,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 2.07,
+                "std": 1.14,
+                "median": 2.03
+            },
+            "speed": {
+                "mean": 6.65,
+                "std": 2.16,
+                "median": 7.1
+            },
+            "total_reward": {
+                "mean": 422.37,
+                "std": 555.8,
+                "median": 720.3
+            },
+            "timesteps": {
+                "mean": 155.82,
+                "std": 69.05,
+                "median": 170.5
+            }
+        },
+        "dense-Town02-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.19,
+                "median": 0.86
+            },
+            "waypoint_distance": {
+                "mean": 2.43,
+                "std": 1.5,
+                "median": 2.37
+            },
+            "speed": {
+                "mean": 5.47,
+                "std": 2.07,
+                "median": 6.42
+            },
+            "total_reward": {
+                "mean": 347.86,
+                "std": 546.05,
+                "median": 655.18
+            },
+            "timesteps": {
+                "mean": 172.2,
+                "std": 90.73,
+                "median": 183.0
+            }
+        },
+        "no-Town02-test": {
+            "collision_rate": {
+                "mean": 0.96,
+                "std": 0.2,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.77,
+                "std": 0.19,
+                "median": 0.82
+            },
+            "waypoint_distance": {
+                "mean": 2.84,
+                "std": 2.18,
+                "median": 2.38
+            },
+            "speed": {
+                "mean": 5.39,
+                "std": 0.95,
+                "median": 5.52
+            },
+            "total_reward": {
+                "mean": 591.92,
+                "std": 148.86,
+                "median": 617.27
+            },
+            "timesteps": {
+                "mean": 226.1,
+                "std": 89.54,
+                "median": 213.5
+            }
+        },
+        "regular-Town02-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.77,
+                "std": 0.19,
+                "median": 0.84
+            },
+            "waypoint_distance": {
+                "mean": 3.12,
+                "std": 1.88,
+                "median": 2.67
+            },
+            "speed": {
+                "mean": 5.91,
+                "std": 1.22,
+                "median": 6.14
+            },
+            "total_reward": {
+                "mean": 601.15,
+                "std": 394.5,
+                "median": 710.97
+            },
+            "timesteps": {
+                "mean": 236.9,
+                "std": 87.21,
+                "median": 228.0
+            }
+        },
+        "dense-Town03-test": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.66,
+                "std": 0.37,
+                "median": 0.75
+            },
+            "waypoint_distance": {
+                "mean": 5.45,
+                "std": 4.69,
+                "median": 4.23
+            },
+            "speed": {
+                "mean": 6.58,
+                "std": 3.05,
+                "median": 6.42
+            },
+            "total_reward": {
+                "mean": 366.62,
+                "std": 561.6,
+                "median": 494.41
+            },
+            "timesteps": {
+                "mean": 267.12,
+                "std": 154.83,
+                "median": 272.5
+            }
+        },
+        "no-Town03-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.87,
+                "std": 0.13,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 2.67,
+                "std": 1.36,
+                "median": 2.43
+            },
+            "speed": {
+                "mean": 6.13,
+                "std": 1.5,
+                "median": 6.55
+            },
+            "total_reward": {
+                "mean": 821.14,
+                "std": 277.33,
+                "median": 904.52
+            },
+            "timesteps": {
+                "mean": 246.64,
+                "std": 84.42,
+                "median": 248.5
+            }
+        },
+        "regular-Town03-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.81,
+                "std": 0.21,
+                "median": 0.87
+            },
+            "waypoint_distance": {
+                "mean": 2.66,
+                "std": 1.24,
+                "median": 2.7
+            },
+            "speed": {
+                "mean": 5.85,
+                "std": 1.87,
+                "median": 6.57
+            },
+            "total_reward": {
+                "mean": 458.38,
+                "std": 588.39,
+                "median": 739.76
+            },
+            "timesteps": {
+                "mean": 191.7,
+                "std": 90.47,
+                "median": 206.5
+            }
+        },
+        "dense-Town04-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.83,
+                "std": 0.26,
+                "median": 0.89
+            },
+            "waypoint_distance": {
+                "mean": 3.22,
+                "std": 3.08,
+                "median": 2.52
+            },
+            "speed": {
+                "mean": 6.12,
+                "std": 0.74,
+                "median": 6.22
+            },
+            "total_reward": {
+                "mean": 501.06,
+                "std": 378.86,
+                "median": 643.57
+            },
+            "timesteps": {
+                "mean": 190.06,
+                "std": 65.94,
+                "median": 187.5
+            }
+        },
+        "no-Town04-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.19,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 3.09,
+                "std": 2.53,
+                "median": 2.13
+            },
+            "speed": {
+                "mean": 6.14,
+                "std": 0.67,
+                "median": 6.08
+            },
+            "total_reward": {
+                "mean": 663.45,
+                "std": 251.87,
+                "median": 728.84
+            },
+            "timesteps": {
+                "mean": 231.8,
+                "std": 60.52,
+                "median": 223.5
+            }
+        },
+        "regular-Town04-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.83,
+                "std": 0.26,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 3.34,
+                "std": 3.33,
+                "median": 2.86
+            },
+            "speed": {
+                "mean": 6.61,
+                "std": 1.52,
+                "median": 7.1
+            },
+            "total_reward": {
+                "mean": 524.23,
+                "std": 417.13,
+                "median": 680.04
+            },
+            "timesteps": {
+                "mean": 184.86,
+                "std": 63.94,
+                "median": 185.5
+            }
+        },
+        "dense-Town05-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.7,
+                "std": 0.19,
+                "median": 0.69
+            },
+            "waypoint_distance": {
+                "mean": 4.49,
+                "std": 3.18,
+                "median": 4.43
+            },
+            "speed": {
+                "mean": 6.37,
+                "std": 2.06,
+                "median": 6.82
+            },
+            "total_reward": {
+                "mean": 326.52,
+                "std": 480.96,
+                "median": 392.85
+            },
+            "timesteps": {
+                "mean": 232.62,
+                "std": 98.22,
+                "median": 247.0
+            }
+        },
+        "no-Town05-test": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.74,
+                "std": 0.13,
+                "median": 0.77
+            },
+            "waypoint_distance": {
+                "mean": 4.63,
+                "std": 2.49,
+                "median": 3.94
+            },
+            "speed": {
+                "mean": 6.18,
+                "std": 0.81,
+                "median": 6.28
+            },
+            "total_reward": {
+                "mean": 643.7,
+                "std": 246.43,
+                "median": 748.28
+            },
+            "timesteps": {
+                "mean": 310.46,
+                "std": 60.21,
+                "median": 305.5
+            }
+        },
+        "regular-Town05-test": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.73,
+                "std": 0.18,
+                "median": 0.74
+            },
+            "waypoint_distance": {
+                "mean": 4.41,
+                "std": 2.41,
+                "median": 4.42
+            },
+            "speed": {
+                "mean": 5.81,
+                "std": 1.7,
+                "median": 6.11
+            },
+            "total_reward": {
+                "mean": 373.47,
+                "std": 480.71,
+                "median": 431.18
+            },
+            "timesteps": {
+                "mean": 261.7,
+                "std": 107.02,
+                "median": 288.5
+            }
+        },
+        "dense-Town06-test": {
+            "collision_rate": {
+                "mean": 0.94,
+                "std": 0.24,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.63,
+                "std": 0.25,
+                "median": 0.7
+            },
+            "waypoint_distance": {
+                "mean": 4.62,
+                "std": 3.07,
+                "median": 3.96
+            },
+            "speed": {
+                "mean": 6.73,
+                "std": 1.09,
+                "median": 7.0
+            },
+            "total_reward": {
+                "mean": 535.8,
+                "std": 184.73,
+                "median": 531.98
+            },
+            "timesteps": {
+                "mean": 287.2,
+                "std": 107.61,
+                "median": 279.0
+            }
+        },
+        "no-Town06-test": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.73,
+                "std": 0.2,
+                "median": 0.81
+            },
+            "waypoint_distance": {
+                "mean": 4.16,
+                "std": 2.74,
+                "median": 3.28
+            },
+            "speed": {
+                "mean": 6.63,
+                "std": 0.94,
+                "median": 6.95
+            },
+            "total_reward": {
+                "mean": 788.26,
+                "std": 183.83,
+                "median": 793.7
+            },
+            "timesteps": {
+                "mean": 309.38,
+                "std": 108.5,
+                "median": 294.0
+            }
+        },
+        "regular-Town06-test": {
+            "collision_rate": {
+                "mean": 0.96,
+                "std": 0.2,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.71,
+                "std": 0.19,
+                "median": 0.73
+            },
+            "waypoint_distance": {
+                "mean": 4.57,
+                "std": 2.99,
+                "median": 4.25
+            },
+            "speed": {
+                "mean": 6.54,
+                "std": 0.9,
+                "median": 6.83
+            },
+            "total_reward": {
+                "mean": 589.97,
+                "std": 204.04,
+                "median": 613.44
+            },
+            "timesteps": {
+                "mean": 293.32,
+                "std": 111.58,
+                "median": 287.5
+            }
+        },
+        "dense-Town07-test": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.74,
+                "std": 0.39,
+                "median": 0.92
+            },
+            "waypoint_distance": {
+                "mean": 3.35,
+                "std": 3.79,
+                "median": 1.59
+            },
+            "speed": {
+                "mean": 6.02,
+                "std": 3.89,
+                "median": 5.69
+            },
+            "total_reward": {
+                "mean": 88.41,
+                "std": 698.33,
+                "median": 23.72
+            },
+            "timesteps": {
+                "mean": 168.14,
+                "std": 152.85,
+                "median": 108.0
+            }
+        },
+        "no-Town07-test": {
+            "collision_rate": {
+                "mean": 0.76,
+                "std": 0.43,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.19,
+                "median": 0.91
+            },
+            "waypoint_distance": {
+                "mean": 3.81,
+                "std": 3.21,
+                "median": 2.08
+            },
+            "speed": {
+                "mean": 5.73,
+                "std": 0.94,
+                "median": 5.78
+            },
+            "total_reward": {
+                "mean": 817.87,
+                "std": 414.25,
+                "median": 777.27
+            },
+            "timesteps": {
+                "mean": 301.68,
+                "std": 137.83,
+                "median": 225.5
+            }
+        },
+        "regular-Town07-test": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.71,
+                "std": 0.48,
+                "median": 0.93
+            },
+            "waypoint_distance": {
+                "mean": 3.3,
+                "std": 3.46,
+                "median": 1.76
+            },
+            "speed": {
+                "mean": 5.67,
+                "std": 3.2,
+                "median": 6.22
+            },
+            "total_reward": {
+                "mean": 171.6,
+                "std": 714.32,
+                "median": 125.7
+            },
+            "timesteps": {
+                "mean": 189.88,
+                "std": 157.94,
+                "median": 157.5
+            }
+        },
+        "dense-Town10-test": {
+            "collision_rate": {
+                "mean": 0.86,
+                "std": 0.35,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.64,
+                "std": 0.25,
+                "median": 0.69
+            },
+            "waypoint_distance": {
+                "mean": 4.56,
+                "std": 2.95,
+                "median": 3.9
+            },
+            "speed": {
+                "mean": 6.61,
+                "std": 0.66,
+                "median": 6.84
+            },
+            "total_reward": {
+                "mean": 682.19,
+                "std": 201.91,
+                "median": 710.62
+            },
+            "timesteps": {
+                "mean": 317.04,
+                "std": 107.68,
+                "median": 299.5
+            }
+        },
+        "no-Town10-test": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.76,
+                "std": 0.15,
+                "median": 0.81
+            },
+            "waypoint_distance": {
+                "mean": 4.13,
+                "std": 2.38,
+                "median": 3.5
+            },
+            "speed": {
+                "mean": 6.08,
+                "std": 0.56,
+                "median": 6.16
+            },
+            "total_reward": {
+                "mean": 799.97,
+                "std": 142.31,
+                "median": 797.1
+            },
+            "timesteps": {
+                "mean": 345.7,
+                "std": 99.57,
+                "median": 343.5
+            }
+        },
+        "regular-Town10-test": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.7,
+                "std": 0.22,
+                "median": 0.74
+            },
+            "waypoint_distance": {
+                "mean": 4.56,
+                "std": 2.95,
+                "median": 3.83
+            },
+            "speed": {
+                "mean": 6.82,
+                "std": 0.58,
+                "median": 6.87
+            },
+            "total_reward": {
+                "mean": 815.4,
+                "std": 250.16,
+                "median": 823.81
+            },
+            "timesteps": {
+                "mean": 340.0,
+                "std": 105.14,
+                "median": 335.0
+            }
+        },
+        "dense-Town01-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.8,
+                "std": 0.23,
+                "median": 0.84
+            },
+            "waypoint_distance": {
+                "mean": 2.34,
+                "std": 1.87,
+                "median": 1.75
+            },
+            "speed": {
+                "mean": 5.68,
+                "std": 2.09,
+                "median": 5.8
+            },
+            "total_reward": {
+                "mean": 440.74,
+                "std": 436.66,
+                "median": 630.07
+            },
+            "timesteps": {
+                "mean": 177.08,
+                "std": 89.78,
+                "median": 175.0
+            }
+        },
+        "no-Town01-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.84,
+                "std": 0.12,
+                "median": 0.86
+            },
+            "waypoint_distance": {
+                "mean": 2.71,
+                "std": 1.02,
+                "median": 2.49
+            },
+            "speed": {
+                "mean": 5.7,
+                "std": 0.74,
+                "median": 5.71
+            },
+            "total_reward": {
+                "mean": 773.12,
+                "std": 141.92,
+                "median": 778.17
+            },
+            "timesteps": {
+                "mean": 257.98,
+                "std": 56.04,
+                "median": 256.0
+            }
+        },
+        "regular-Town01-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.87,
+                "std": 0.19,
+                "median": 0.93
+            },
+            "waypoint_distance": {
+                "mean": 2.03,
+                "std": 2.16,
+                "median": 1.64
+            },
+            "speed": {
+                "mean": 5.17,
+                "std": 2.28,
+                "median": 5.51
+            },
+            "total_reward": {
+                "mean": 235.94,
+                "std": 596.12,
+                "median": 667.4
+            },
+            "timesteps": {
+                "mean": 150.96,
+                "std": 80.33,
+                "median": 163.5
+            }
+        },
+        "dense-Town02-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.2,
+                "median": 0.85
+            },
+            "waypoint_distance": {
+                "mean": 2.36,
+                "std": 1.74,
+                "median": 1.93
+            },
+            "speed": {
+                "mean": 5.0,
+                "std": 2.25,
+                "median": 6.07
+            },
+            "total_reward": {
+                "mean": 183.59,
+                "std": 569.64,
+                "median": 562.99
+            },
+            "timesteps": {
+                "mean": 165.48,
+                "std": 91.35,
+                "median": 183.0
+            }
+        },
+        "no-Town02-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.83,
+                "std": 0.14,
+                "median": 0.87
+            },
+            "waypoint_distance": {
+                "mean": 2.61,
+                "std": 1.23,
+                "median": 2.4
+            },
+            "speed": {
+                "mean": 6.25,
+                "std": 0.81,
+                "median": 6.31
+            },
+            "total_reward": {
+                "mean": 733.56,
+                "std": 156.62,
+                "median": 745.72
+            },
+            "timesteps": {
+                "mean": 222.2,
+                "std": 55.49,
+                "median": 220.5
+            }
+        },
+        "regular-Town02-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.78,
+                "std": 0.21,
+                "median": 0.84
+            },
+            "waypoint_distance": {
+                "mean": 3.28,
+                "std": 1.6,
+                "median": 2.95
+            },
+            "speed": {
+                "mean": 6.19,
+                "std": 1.16,
+                "median": 6.3
+            },
+            "total_reward": {
+                "mean": 519.29,
+                "std": 377.09,
+                "median": 624.89
+            },
+            "timesteps": {
+                "mean": 222.78,
+                "std": 81.33,
+                "median": 215.0
+            }
+        },
+        "dense-Town03-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.79,
+                "std": 0.19,
+                "median": 0.86
+            },
+            "waypoint_distance": {
+                "mean": 2.8,
+                "std": 1.72,
+                "median": 2.39
+            },
+            "speed": {
+                "mean": 6.06,
+                "std": 1.36,
+                "median": 6.25
+            },
+            "total_reward": {
+                "mean": 544.12,
+                "std": 471.17,
+                "median": 727.22
+            },
+            "timesteps": {
+                "mean": 223.06,
+                "std": 85.82,
+                "median": 223.5
+            }
+        },
+        "no-Town03-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.82,
+                "std": 0.16,
+                "median": 0.88
+            },
+            "waypoint_distance": {
+                "mean": 3.06,
+                "std": 1.79,
+                "median": 2.61
+            },
+            "speed": {
+                "mean": 5.64,
+                "std": 0.98,
+                "median": 5.76
+            },
+            "total_reward": {
+                "mean": 729.77,
+                "std": 175.61,
+                "median": 771.0
+            },
+            "timesteps": {
+                "mean": 262.88,
+                "std": 90.19,
+                "median": 252.0
+            }
+        },
+        "regular-Town03-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.84,
+                "std": 0.19,
+                "median": 0.88
+            },
+            "waypoint_distance": {
+                "mean": 2.79,
+                "std": 1.22,
+                "median": 2.67
+            },
+            "speed": {
+                "mean": 5.96,
+                "std": 1.66,
+                "median": 6.44
+            },
+            "total_reward": {
+                "mean": 615.75,
+                "std": 530.28,
+                "median": 822.87
+            },
+            "timesteps": {
+                "mean": 231.8,
+                "std": 82.86,
+                "median": 234.0
+            }
+        },
+        "dense-Town04-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.8,
+                "std": 0.23,
+                "median": 0.86
+            },
+            "waypoint_distance": {
+                "mean": 3.19,
+                "std": 3.28,
+                "median": 2.59
+            },
+            "speed": {
+                "mean": 5.87,
+                "std": 1.18,
+                "median": 5.89
+            },
+            "total_reward": {
+                "mean": 440.35,
+                "std": 354.18,
+                "median": 580.71
+            },
+            "timesteps": {
+                "mean": 193.46,
+                "std": 70.48,
+                "median": 189.0
+            }
+        },
+        "no-Town04-train": {
+            "collision_rate": {
+                "mean": 1.0,
+                "std": 0.0,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.83,
+                "std": 0.16,
+                "median": 0.88
+            },
+            "waypoint_distance": {
+                "mean": 3.0,
+                "std": 2.43,
+                "median": 2.07
+            },
+            "speed": {
+                "mean": 5.5,
+                "std": 1.07,
+                "median": 5.58
+            },
+            "total_reward": {
+                "mean": 623.72,
+                "std": 269.51,
+                "median": 731.39
+            },
+            "timesteps": {
+                "mean": 232.18,
+                "std": 63.8,
+                "median": 232.5
+            }
+        },
+        "regular-Town04-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.79,
+                "std": 0.27,
+                "median": 0.89
+            },
+            "waypoint_distance": {
+                "mean": 3.33,
+                "std": 3.41,
+                "median": 2.72
+            },
+            "speed": {
+                "mean": 5.67,
+                "std": 1.26,
+                "median": 5.75
+            },
+            "total_reward": {
+                "mean": 502.98,
+                "std": 334.71,
+                "median": 620.46
+            },
+            "timesteps": {
+                "mean": 213.44,
+                "std": 87.23,
+                "median": 207.5
+            }
+        },
+        "dense-Town05-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.69,
+                "std": 0.15,
+                "median": 0.7
+            },
+            "waypoint_distance": {
+                "mean": 4.61,
+                "std": 1.95,
+                "median": 4.56
+            },
+            "speed": {
+                "mean": 6.64,
+                "std": 1.14,
+                "median": 6.95
+            },
+            "total_reward": {
+                "mean": 472.76,
+                "std": 220.5,
+                "median": 521.24
+            },
+            "timesteps": {
+                "mean": 257.9,
+                "std": 73.76,
+                "median": 257.0
+            }
+        },
+        "no-Town05-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.74,
+                "std": 0.15,
+                "median": 0.78
+            },
+            "waypoint_distance": {
+                "mean": 4.9,
+                "std": 2.65,
+                "median": 4.16
+            },
+            "speed": {
+                "mean": 6.89,
+                "std": 0.27,
+                "median": 6.91
+            },
+            "total_reward": {
+                "mean": 627.69,
+                "std": 217.88,
+                "median": 730.0
+            },
+            "timesteps": {
+                "mean": 287.04,
+                "std": 56.05,
+                "median": 281.0
+            }
+        },
+        "regular-Town05-train": {
+            "collision_rate": {
+                "mean": 0.98,
+                "std": 0.14,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.74,
+                "std": 0.13,
+                "median": 0.75
+            },
+            "waypoint_distance": {
+                "mean": 4.89,
+                "std": 2.31,
+                "median": 4.77
+            },
+            "speed": {
+                "mean": 6.4,
+                "std": 1.23,
+                "median": 6.73
+            },
+            "total_reward": {
+                "mean": 464.92,
+                "std": 279.31,
+                "median": 514.16
+            },
+            "timesteps": {
+                "mean": 261.16,
+                "std": 88.83,
+                "median": 270.5
+            }
+        },
+        "dense-Town06-train": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.65,
+                "std": 0.25,
+                "median": 0.7
+            },
+            "waypoint_distance": {
+                "mean": 4.54,
+                "std": 2.96,
+                "median": 3.83
+            },
+            "speed": {
+                "mean": 6.61,
+                "std": 0.65,
+                "median": 6.77
+            },
+            "total_reward": {
+                "mean": 649.65,
+                "std": 252.82,
+                "median": 708.95
+            },
+            "timesteps": {
+                "mean": 311.16,
+                "std": 103.62,
+                "median": 291.0
+            }
+        },
+        "no-Town06-train": {
+            "collision_rate": {
+                "mean": 0.88,
+                "std": 0.32,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.76,
+                "std": 0.15,
+                "median": 0.78
+            },
+            "waypoint_distance": {
+                "mean": 4.17,
+                "std": 2.38,
+                "median": 3.66
+            },
+            "speed": {
+                "mean": 6.0,
+                "std": 0.86,
+                "median": 6.15
+            },
+            "total_reward": {
+                "mean": 779.56,
+                "std": 174.06,
+                "median": 797.12
+            },
+            "timesteps": {
+                "mean": 344.76,
+                "std": 106.94,
+                "median": 348.0
+            }
+        },
+        "regular-Town06-train": {
+            "collision_rate": {
+                "mean": 0.94,
+                "std": 0.24,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.7,
+                "std": 0.22,
+                "median": 0.75
+            },
+            "waypoint_distance": {
+                "mean": 4.55,
+                "std": 3.02,
+                "median": 3.79
+            },
+            "speed": {
+                "mean": 6.78,
+                "std": 0.58,
+                "median": 6.84
+            },
+            "total_reward": {
+                "mean": 790.32,
+                "std": 272.06,
+                "median": 833.27
+            },
+            "timesteps": {
+                "mean": 334.22,
+                "std": 104.08,
+                "median": 326.5
+            }
+        },
+        "dense-Town07-train": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.72,
+                "std": 0.38,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 3.37,
+                "std": 3.63,
+                "median": 2.02
+            },
+            "speed": {
+                "mean": 6.23,
+                "std": 3.88,
+                "median": 5.72
+            },
+            "total_reward": {
+                "mean": 122.81,
+                "std": 645.27,
+                "median": 307.62
+            },
+            "timesteps": {
+                "mean": 163.54,
+                "std": 140.21,
+                "median": 156.5
+            }
+        },
+        "no-Town07-train": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.81,
+                "std": 0.2,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 3.47,
+                "std": 3.06,
+                "median": 2.03
+            },
+            "speed": {
+                "mean": 5.59,
+                "std": 1.08,
+                "median": 5.53
+            },
+            "total_reward": {
+                "mean": 794.95,
+                "std": 277.23,
+                "median": 781.07
+            },
+            "timesteps": {
+                "mean": 284.24,
+                "std": 116.5,
+                "median": 235.0
+            }
+        },
+        "regular-Town07-train": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.74,
+                "std": 0.44,
+                "median": 0.94
+            },
+            "waypoint_distance": {
+                "mean": 2.73,
+                "std": 2.94,
+                "median": 1.23
+            },
+            "speed": {
+                "mean": 5.25,
+                "std": 2.99,
+                "median": 4.7
+            },
+            "total_reward": {
+                "mean": 151.99,
+                "std": 630.76,
+                "median": -21.89
+            },
+            "timesteps": {
+                "mean": 186.42,
+                "std": 154.38,
+                "median": 105.0
+            }
+        },
+        "dense-Town10-train": {
+            "collision_rate": {
+                "mean": 0.92,
+                "std": 0.27,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.65,
+                "std": 0.48,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 3.83,
+                "std": 3.96,
+                "median": 1.66
+            },
+            "speed": {
+                "mean": 6.11,
+                "std": 3.59,
+                "median": 5.79
+            },
+            "total_reward": {
+                "mean": 31.7,
+                "std": 667.89,
+                "median": 271.21
+            },
+            "timesteps": {
+                "mean": 176.74,
+                "std": 147.82,
+                "median": 143.0
+            }
+        },
+        "no-Town10-train": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.8,
+                "std": 0.23,
+                "median": 0.9
+            },
+            "waypoint_distance": {
+                "mean": 3.83,
+                "std": 3.47,
+                "median": 2.04
+            },
+            "speed": {
+                "mean": 6.07,
+                "std": 1.22,
+                "median": 6.11
+            },
+            "total_reward": {
+                "mean": 778.88,
+                "std": 307.39,
+                "median": 779.15
+            },
+            "timesteps": {
+                "mean": 268.8,
+                "std": 131.25,
+                "median": 206.5
+            }
+        },
+        "regular-Town10-train": {
+            "collision_rate": {
+                "mean": 0.9,
+                "std": 0.3,
+                "median": 1.0
+            },
+            "similarity": {
+                "mean": 0.77,
+                "std": 0.4,
+                "median": 0.93
+            },
+            "waypoint_distance": {
+                "mean": 3.41,
+                "std": 4.23,
+                "median": 1.53
+            },
+            "speed": {
+                "mean": 5.83,
+                "std": 3.24,
+                "median": 5.81
+            },
+            "total_reward": {
+                "mean": 36.38,
+                "std": 604.63,
+                "median": 33.56
+            },
+            "timesteps": {
+                "mean": 166.24,
+                "std": 146.66,
+                "median": 118.0
+            }
+        }
+    }
+}

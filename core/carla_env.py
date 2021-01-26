@@ -1,4 +1,6 @@
+import os
 import carla
+import pygame
 import random
 import numpy as np
 
@@ -12,9 +14,6 @@ from rl.environments.carla import env_utils
 from typing import Dict, Tuple, Optional, Union
 
 
-# TODO: changes
-#  - action space from 3 to 2 actions: throttle_or_brake, steer
-#  - new state space: [image, road, vehicle, navigation]
 class CARLAEnv(ThreeCameraCARLAEnvironment):
     ACTION = dict(space=spaces.Box(low=-1.0, high=1.0, shape=(2,)), default=np.zeros(shape=2, dtype=np.float32))
 
@@ -27,7 +26,7 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
     def __init__(self, *args, stack_depth=False, collision_penalty=1000.0, info_every=1, time_horizon=4,
                  past_obs_freq=4, throttle_as_desired_speed=True, num_waypoints_for_feature=5,
                  range_controls: Optional[Dict[str, Tuple[float, float]]] = None, random_weathers: list = None,
-                 random_towns: list = None, **kwargs):
+                 random_towns: list = None, record_path: str = None, **kwargs):
         """
         :param stack_depth: if true the depth-image from the depth camera sensor will be stacked along the channel
                             dimension of the image, resulting in an image with an additional channel (e.g. 3 + 1 = 4)
@@ -102,6 +101,13 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
                 self.should_sample_town = True
                 self.town_set = random_towns
 
+        # Record (same images)
+        if record_path is None:
+            self.should_record = False
+        else:
+            self.should_record = True
+            self.record_path = utils.makedirs(record_path)
+
     def define_sensors(self) -> dict:
         from rl.environments.carla.sensors import SensorSpecs
         return dict(collision=SensorSpecs.collision_detector(callback=self.on_collision),
@@ -134,14 +140,16 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
 
     def actions_to_control(self, actions):
         """Converts the given actions to vehicle's control"""
-        super().actions_to_control(actions)
+        self.control.throttle = float(actions[0]) if actions[0] > 0 else 0.0
+        self.control.brake = float(-actions[0]) if actions[0] < 0 else 0.0
+        self.control.steer = float(actions[1])
+        self.control.hand_brake = False
+        self.control.reverse = False
 
         if self.interpret_throttle_as_desired_speed:
             desired_speed = (float(actions[0]) + 1.0) / 2
             desired_speed *= 100.0
             current_speed = carla_utils.speed(self.vehicle)
-
-            # print(f'[env] Desired speed: {round(desired_speed, 2)}, delta = {round(current_speed - desired_speed, 2)}.')
 
             if current_speed == desired_speed:
                 self.control.throttle = 0.0
@@ -215,6 +223,20 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
     def reset_info(self):
         for k in self.info_buffer.keys():
             self.info_buffer[k].clear()
+
+    def render(self):
+        super().render()
+        
+        if self.should_record:
+            pygame.image.save(self.display, os.path.join(self.record_path, f'{self.timestep}.jpeg'))
+
+    def set_record_path(path):
+        if isinstance(path, str):
+            self.record_path = path
+            self.should_record = True
+        else:
+            self.should_record = False
+            self.record_path = None
 
     def step(self, actions):
         """Performs one environment step (i.e. it updates the world, etc.)"""

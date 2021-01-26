@@ -166,12 +166,17 @@ class Stage:
         self.agent.evaluate(**kwargs)
         return self
 
+    def record(self, **kwargs) -> 'Stage':
+        self.init()
+        self.agent.record(**kwargs)
+        return self
+
     def collect(self):
         wrapper = CARLACollectWrapper(env=self.env, **self.collect_args)
         wrapper.collect(**self.learn_args['collect'])
 
-    # def representation_learning(self):
-    #     self.agent.learn_representation(**self.repr_args)
+    def representation_learning(self):
+        self.agent.learn_representation(**self.repr_args)
 
     def imitation_learning(self):
         self.agent.imitation_learning(**self.imitation_args)
@@ -327,7 +332,6 @@ def stage_s1(episodes: int, timesteps: int, batch_size: int, save_every=None, se
                           image_shape=(90, 120, 3),
                           path=dict(origin=sample_origins(amount=10, seed=seed)),
                           throttle_as_desired_speed=True,
-                          # range_controls=dict(steer=(-0.9, 0.9)),
                           info_every=kwargs.get('repeat_action', 1),
                           disable_reverse=True, window_size=(900, 245))
 
@@ -480,7 +484,7 @@ def stage_s5(episodes: int, timesteps: int, batch_size: int, town: str, save_eve
         weather = light_weathers
 
     traffic_spec = dict(no=None,
-                        regular=dict(vehicles=100, pedestrians=200),
+                        regular=dict(vehicles=50, pedestrians=50),
                         dense=dict(vehicles=100, pedestrians=200))
 
     env_dict = define_env(town=town, debug=True, throttle_as_desired_speed=True,

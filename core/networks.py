@@ -65,6 +65,7 @@ def control_branch(inputs: dict, units: int, num_layers: int, activation=utils.s
     return x
 
 
+# TODO: deprecated
 def select_branch(branches, command):
     """Branch-selection mechanism"""
     branches_out = concatenate(branches)
@@ -145,12 +146,8 @@ class CARLANetwork(networks.PPONetwork):
         memory = self.agent.memory
 
         if tf.shape(memory.actions)[0] == 0:
-            # inputs['value'] = tf.zeros_like(self.last_value)
-            # inputs['reward'] = tf.zeros((1, 1))
             inputs['action'] = tf.zeros((1, self.agent.num_actions))
         else:
-            # inputs['value'] = tf.expand_dims(memory.values[-1], axis=0)
-            # inputs['reward'] = tf.expand_dims(memory.rewards[-1], axis=0)
             inputs['action'] = tf.expand_dims(memory.actions[-1], axis=0)
 
         return inputs
