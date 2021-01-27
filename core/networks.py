@@ -7,10 +7,8 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
 from typing import List, Dict, Union
-from functools import partial
 
-from rl import networks
-from rl import utils
+from rl import networks, utils
 
 from core import architectures as nn
 

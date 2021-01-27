@@ -4,19 +4,18 @@ import time
 import random
 import tensorflow as tf
 import numpy as np
-import carla
 import json
+import rl
 
 from typing import Union, List
 
 from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 from tensorflow.keras import losses
 
-from rl import utils
-from rl import augmentations as aug
-from rl.agents import PPOAgent
-from rl.agents.ppo import PPOMemory
-from rl.environments import ThreeCameraCARLAEnvironmentDiscrete
+from rl import utils, augmentations as aug
+from rl import PPOAgent
+from rl import PPOMemory
+from rl import ThreeCameraCARLAEnvironmentDiscrete
 from rl.environments.carla.tools import utils as carla_utils
 from rl.parameters import DynamicParameter
 
@@ -181,7 +180,7 @@ class CARLAgent(PPOAgent):
                     next_state, reward, done, _ = self.env.step(action_env)
                     total_reward += reward
 
-                    self.memory.append(state, action, reward, value, log_prob, timestep=t)
+                    self.memory.append(state, action, reward, value, log_prob)
                     state = next_state
 
                     # use t > 1 to skip accidental collision at first timestep
@@ -275,7 +274,7 @@ class CARLAgent(PPOAgent):
                     self.log(eval_actions=action, eval_rewards=reward,
                              eval_distribution_mean=mean, eval_distribution_std=std)
 
-                    self.memory.append(state, action, reward, value, log_prob, timestep=t)
+                    self.memory.append(state, action, reward, value, log_prob)
                     state = next_state
 
                     # use t > 1 to skip accidental collision at first timestep
@@ -576,7 +575,7 @@ class CARLAgent(PPOAgent):
         def filter_throttle(s, a, r):
             mask = a[:, 0] >= 0.0
 
-            s = {k: utils.to_float(v)[mask] for k, v in s.items()}
+            s = {_k: utils.to_float(v)[mask] for _k, v in s.items()}
 
             return s, a[mask], r[tf.concat([mask, [True]], axis=0)]
 
@@ -584,8 +583,8 @@ class CARLAgent(PPOAgent):
             indices = tf.range(start=0, limit=tf.shape(a)[0], dtype=tf.int32)
             indices = tf.random.shuffle(indices)
 
-            for k, v in s.items():
-                s[k] = tf.gather(v, indices)
+            for _k, v in s.items():
+                s[_k] = tf.gather(v, indices)
 
             a = tf.gather(a, indices)
             r = tf.gather(r, tf.concat([indices, [tf.shape(r)[0] - 1]], axis=0))
@@ -856,7 +855,7 @@ class CARLAgent(PPOAgent):
             if alpha > 0.0:
                 # Color Jitter:
                 if aug.tf_chance(seed=seed) < alpha:
-                    image = aug.simclr.color_jitter(image, strength=alpha, seed=seed)
+                    image = rl.augmentations.simclr.color_jitter(image, strength=alpha, seed=seed)
 
                 # blur
                 if aug.tf_chance(seed=seed) < 0.25 * alpha:

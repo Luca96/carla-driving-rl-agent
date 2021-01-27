@@ -7,7 +7,7 @@ import numpy as np
 from gym import spaces
 
 from rl import utils
-from rl.environments import ThreeCameraCARLAEnvironment, CARLAEvent
+from rl import ThreeCameraCARLAEnvironment, CARLAEvent
 from rl.environments.carla.tools import utils as carla_utils
 from rl.environments.carla import env_utils
 
@@ -106,10 +106,10 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
             self.should_record = False
         else:
             self.should_record = True
-            self.record_path = utils.makedirs(record_path)
+            self.record_path = utils.makedir(record_path)
 
     def define_sensors(self) -> dict:
-        from rl.environments.carla.sensors import SensorSpecs
+        from rl import SensorSpecs
         return dict(collision=SensorSpecs.collision_detector(callback=self.on_collision),
                     imu=SensorSpecs.imu(),
                     front_camera=SensorSpecs.rgb_camera(position='on-top2', attachment_type='Rigid',
@@ -224,13 +224,13 @@ class CARLAEnv(ThreeCameraCARLAEnvironment):
         for k in self.info_buffer.keys():
             self.info_buffer[k].clear()
 
-    def render(self):
+    def render(self, *args, **kwargs):
         super().render()
         
         if self.should_record:
             pygame.image.save(self.display, os.path.join(self.record_path, f'{self.timestep}.jpeg'))
 
-    def set_record_path(path):
+    def set_record_path(self, path):
         if isinstance(path, str):
             self.record_path = path
             self.should_record = True

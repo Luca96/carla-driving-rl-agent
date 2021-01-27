@@ -91,7 +91,7 @@ if __name__ == '__main__':
     # exit()
 
     # EVALUATION:
-    towns = ['Town01','Town02', 'Town03', 'Town04','Town05', 'Town06','Town07', 'Town10']
+    towns = ['Town01', 'Town02', 'Town03', 'Town04', 'Town05', 'Town06', 'Town07', 'Town10']
 
     for mode in ['train', 'test']:
         for town in towns:

@@ -10,7 +10,7 @@ Requirements, installation instructions, and results are listed below.
 Software:
 - Python 3.7
 - CARLA 0.9.9
-- Libraries: install from `requirements.txt`, and make sure to clone the repo **recursively**.
+- Libraries: install from `requirements.txt`
 
 Hardware (minimum):
 - CPU: at least quad or octa core.
@@ -22,10 +22,11 @@ Hardware (minimum):
 ## Installation
 
 Before running any code from this repo you have to:
-1. **Download CARLA 0.9.9** from their GitHub repo, [here](https://github.com/carla-simulator/carla/releases/tag/0.9.9) 
+1. **Clone this repo**: `git clone https://github.com/Luca96/carla-driving-rl-agent.git`
+2. **Download CARLA 0.9.9** from their GitHub repo, [here](https://github.com/carla-simulator/carla/releases/tag/0.9.9) 
    where you can find precompiled binaries which are ready-to-use. Refer to [carla-quickstart](https://carla.readthedocs.io/en/latest/start_quickstart/)
    for more information.
-2. **Install CARLA Python bindings** in order to be able to manage CARLA from Python code. Open your terminal and type:
+3. **Install CARLA Python bindings** in order to be able to manage CARLA from Python code. Open your terminal and type:
    
     * *Windows*: `cd your-path-to-carla/CARLA_0.9.9.4/WindowsNoEditor/PythonAPI/carla/dist/`
     * *Linux*: `cd your-path-to-carla/CARLA_0.9.9.4/PythonAPI/carla/dist/`
@@ -39,8 +40,6 @@ Before running any code from this repo you have to:
             py_modules=['carla']) 
       ```
     * Install via pip: `pip install -e ~/CARLA_0.9.9.4/PythonAPI/carla/dist/carla-0.9.9-py3.7-XXX-amd64`
-3. **Clone this repo**: `git clone --recursive https://github.com/Luca96/carla-driving-rl-agent.git`
-
 
 Before running the repository's code be sure to **start CARLA first**: 
 * *Windows*: `your-path-to/CARLA_0.9.9.4/WindowsNoEditor/CarlaUE4.exe`
@@ -63,7 +62,7 @@ agent.summary()
 Play with the CARLA environment (requires running CARLA):
 ```python
 from core import CARLAEnv
-from rl.environments import CARLAPlayWrapper
+from rl import CARLAPlayWrapper
  
 # Set `debug=False` if the framerate is very low.
 # For better image quality, increase `image_shape` according to your hardware.
@@ -116,4 +115,3 @@ The following table shows the performance of three agents: *curriculum* (C), *st
 ![performance table](src/absolute_performance.png)
 
 For detailed results over each evaluation scenario, refer to the extensive evaluation table: `src\extensive_evaluation_table`.
-

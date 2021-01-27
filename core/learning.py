@@ -1,12 +1,10 @@
-import os
 import time
 import random
 import carla
 
-from rl.environments import CARLACollectWrapper
+from rl import CARLACollectWrapper, utils
 from rl.environments.carla import env_utils as carla_utils
-from rl.parameters import *
-from rl import utils
+from rl import *
 
 from core import CARLAEnv, CARLAgent
 

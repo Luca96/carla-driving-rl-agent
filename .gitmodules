@@ -1,4 +1,0 @@
-[submodule "reinforce-lib"]
-	path = reinforce-lib
-	url = https://github.com/Luca96/reinforce-lib.git
-	branch = master
