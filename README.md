@@ -115,3 +115,9 @@ The following table shows the performance of three agents: *curriculum* (C), *st
 ![performance table](src/absolute_performance.png)
 
 For detailed results over each evaluation scenario, refer to the extensive evaluation table: `src\extensive_evaluation_table`.
+
+---
+
+## Cite this Work
+
+If this work is useful for your own research, please consider citing or mentioning this repository. A proper citation will be provided in the future.
