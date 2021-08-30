@@ -1,5 +1,7 @@
 # CARLA Driving RL Agent
-A follow up of my *master's thesis project* involving **deep reinforcement learning** to train an **autonomous driving agent**. In particular, the driving agent is trained by using the *Proximal Policy Optimization* algorithm ([PPO](https://arxiv.org/pdf/1707.06347)) within a simulated driving environment provided by the [CARLA](http://carla.org/) simulator ([paper](https://arxiv.org/pdf/1711.03938)). The reinforcement learning phase is organized into increasingly difficult *stages*, following the idea of [Curriculum Learning](https://qmro.qmul.ac.uk/xmlui/bitstream/handle/123456789/15972/Bengio%2C%202009%20Curriculum%20Learning.pdf?sequence=1&isAllowed=y). This work is currently under review.
+A follow up of my *master's thesis project* involving **deep reinforcement learning** to train an **autonomous driving agent**. In particular, the driving agent is trained by using the *Proximal Policy Optimization* algorithm ([PPO](https://arxiv.org/pdf/1707.06347)) within a simulated driving environment provided by the [CARLA](http://carla.org/) simulator ([paper](https://arxiv.org/pdf/1711.03938)). The reinforcement learning phase is organized into increasingly difficult *stages*, following the idea of [Curriculum Learning](https://qmro.qmul.ac.uk/xmlui/bitstream/handle/123456789/15972/Bengio%2C%202009%20Curriculum%20Learning.pdf?sequence=1&isAllowed=y). 
+
+This work has been accepted at the International Conference on Image Processing ([ICIP 2021](https://www.2021.ieeeicip.org/)). The conference paper is available [here](https://ieeexplore.ieee.org/abstract/document/9506673/).
 
 Requirements, installation instructions, and results are listed below.
 
@@ -120,4 +122,14 @@ For detailed results over each evaluation scenario, refer to the extensive evalu
 
 ## Cite this Work
 
-If this work is useful for your own research, please consider citing or mentioning this repository. A proper citation will be provided in the future.
+If this work is useful for your own research, please consider citing or mentioning this repository:
+```bibtex
+@inproceedings{anzalone2021reinforced,
+  title={Reinforced Curriculum Learning For Autonomous Driving In Carla},
+  author={Anzalone, Luca and Barra, Silvio and Nappi, Michele},
+  booktitle={2021 IEEE International Conference on Image Processing (ICIP)},
+  pages={3318--3322},
+  year={2021},
+  organization={IEEE}
+}
+```
