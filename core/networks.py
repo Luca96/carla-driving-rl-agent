@@ -9,8 +9,12 @@ from tensorflow.keras.models import Model
 from typing import List, Dict, Union
 
 from rl import networks, utils
+from rl.networks import Network
 
 from core import architectures as nn
+
+
+TensorType = Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]
 
 
 # -------------------------------------------------------------------------------------------------
@@ -49,7 +53,6 @@ def dynamics_layers(inputs: dict, time_horizon: int, **kwargs):
     dynamics_in = concatenate([image_out, road_out, vehicle_out, navigation_out],
                               name='dynamics_in')
     dynamics_out = linear_combination(dynamics_in, **kwargs.get('dynamics', {}), name='dynamics-linear')
-
     return dynamics_out
 
 
@@ -82,7 +85,66 @@ def select_branch(branches, command):
 
 # -------------------------------------------------------------------------------------------------
 
-class CARLANetwork(networks.PPONetwork):
+
+class PolicyNetwork(tf.keras.Model):
+
+    def __init__(self, agent, inputs: Dict[str, Input], name='PolicyNetwork', **kwargs):
+        super().__init__(inputs, outputs=self.structure(inputs, agent.num_actions, **kwargs), name=name)
+
+        self.agent = agent
+
+    def call(self, inputs: TensorType, **kwargs):
+        dist, speed, similarity = super().call(inputs, **kwargs)
+
+        clipped_actions = self._clip_actions(dist)
+        log_prob = dist.log_prob(clipped_actions)
+
+        mean = dist.mean()
+        std = dist.stddev()
+
+        if kwargs.get('training', False):
+            mean = tf.stop_gradient(mean)
+            std = tf.stop_gradient(std)
+
+        return dict(actions=dist, log_prob=log_prob, entropy=dist.entropy(), mean=mean, std=std, speed=speed,
+                    similarity=similarity)
+
+    def structure(self, inputs: Dict[str, Input], num_actions: int, **kwargs):
+        return self.policy_branch(inputs, num_actions, **kwargs)
+
+    def policy_branch(self, inputs: Dict[str, Input], num_actions, **kwargs):
+        branch = control_branch(inputs, **kwargs)
+        distribution = self.get_distribution_layer(branch, num_actions)
+
+        # auxiliary outputs
+        similarity = Dense(units=1, activation=tf.nn.tanh, bias_initializer='glorot_uniform',
+                           name=f'pi-similarity')(branch)
+
+        speed = Dense(units=1, activation=lambda x: 2.0 * tf.nn.sigmoid(x), bias_initializer='glorot_uniform',
+                      name=f'pi-speed')(branch)
+
+        return distribution, speed, similarity
+
+    @staticmethod
+    def get_distribution_layer(layer: Layer, num_actions) -> tfp.layers.DistributionLambda:
+        # Bounded continuous 1-dimensional actions:
+        # for activations choice refer to chapter 4 of http://proceedings.mlr.press/v70/chou17a/chou17a.pdf
+        # make a, b > 1, so that the Beta distribution is concave and unimodal (see paper above)
+        alpha = Dense(units=num_actions, activation=utils.softplus(1.0 + 1e-2), name='alpha')(layer)
+        beta = Dense(units=num_actions, activation=utils.softplus(1.0 + 1e-2), name='beta')(layer)
+
+        return tfp.layers.DistributionLambda(
+            make_distribution_fn=lambda t: tfp.distributions.Beta(t[0], t[1]))([alpha, beta])
+
+    @staticmethod
+    def _clip_actions(actions):
+        """Clips actions to prevent numerical instability when computing (log-)probabilities.
+           - Use for Beta distribution only.
+        """
+        return tf.clip_by_value(actions, utils.EPSILON, 1.0 - utils.EPSILON)
+
+
+class CARLANetwork(Network):
     """The CARLAgent network"""
 
     def __init__(self, agent, control_policy: dict, control_value: dict, dynamics: dict, update_dynamics=False):
@@ -93,7 +155,7 @@ class CARLANetwork(networks.PPONetwork):
         :param dynamics: dict that specifies the architectures of the shared dynamics network.
         :param update_dynamics: set to False to prevent updating the dynamics network.
         """
-        self.agent = agent  # workaround
+        super().__init__(agent)
 
         # Input tensors
         self.inputs = None
@@ -101,38 +163,29 @@ class CARLANetwork(networks.PPONetwork):
 
         # Dynamics model
         self.dynamics = self.dynamics_model(**dynamics)
-
-        # Imitation pre-training model: dynamics + policy & value
-        self.imitation = None
-        self.inference = None
-
-        self.beta = None
         self.action_index = 0
 
-        super().__init__(agent, policy=control_policy, value=control_value)
+        # Value model
+        self.exp_scale = 6.0
+        self.value = self.value_network(**control_value)
+        self.last_value = tf.zeros((1, 2), dtype=tf.float32)  # (base, exp)
 
-    @tf.function
-    def act(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
-        dynamics_out = self.dynamics_predict(inputs)
-        action = self.predict_actions(dynamics_out)
-        value = self.value_predict(dynamics_out)
-        return [action, value]
-
-    @tf.function
-    def predict_actions(self, inputs):
-        return self.policy(inputs, training=False)['actions']
+        # Policy model
+        self.policy = PolicyNetwork(agent=self.agent, inputs=self.intermediate_inputs, **control_policy)
+        self.old_policy = PolicyNetwork(agent=self.agent, inputs=self.intermediate_inputs, **control_policy)
+        self.update_old_policy()
 
     def value_predict(self, inputs):
-        return super().value_predict(inputs)['value']
+        return self.value(inputs, training=False)['value']
 
-    def predict(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
+    def predict(self, inputs: TensorType):
         dynamics_inputs = self.data_for_dynamics(inputs)
         dynamics_output = self.dynamics_predict(dynamics_inputs)
 
         return self._predict(inputs=dynamics_output)
 
     @tf.function
-    def _predict(self, inputs: Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]):
+    def _predict(self, inputs: TensorType):
         policy = self.old_policy(inputs, training=False)
         value = self.value_predict(inputs)
         self.action_index += 1
@@ -167,9 +220,6 @@ class CARLANetwork(networks.PPONetwork):
 
         return self.value_predict(dynamics_out)
 
-    def policy_layers(self, inputs: Dict[str, Input], **kwargs) -> Layer:
-        return control_branch(inputs, **kwargs)
-
     def dynamics_model(self, **kwargs) -> Model:
         """Implicit Dynamics Model,
            - Inputs: state/observation, action, value
@@ -184,7 +234,7 @@ class CARLANetwork(networks.PPONetwork):
         return Model(self.inputs, outputs=dict(dynamics=dynamics_out, action=self.inputs['action']),
                      name='Dynamics-Model')
 
-    def _get_input_layers(self) -> Dict[str, Input]:
+    def _get_input_layers(self, **kwargs) -> Dict[str, Input]:
         """Transforms arbitrary complex state-spaces (and, optionally, action-spaces) as input layers"""
         input_layers = dict()
 
@@ -194,38 +244,16 @@ class CARLANetwork(networks.PPONetwork):
 
         return input_layers
 
-    def policy_network(self, **kwargs) -> Model:
-        num_actions = self.agent.num_actions
-        branch_out = self.policy_branch(index=0, **kwargs)
-
-        outputs = dict(actions=branch_out[:, 0:num_actions], log_prob=branch_out[:, num_actions:num_actions * 2],
-                       old_log_prob=branch_out[:, num_actions * 2:num_actions * 3], mean=branch_out[:, -5],
-                       std=branch_out[:, -4], entropy=branch_out[:, -3],
-                       similarity=branch_out[:, -2], speed=branch_out[:, -1])
-        return Model(inputs=self.intermediate_inputs, outputs=outputs, name='Policy-Network')
-
-    def policy_branch(self, index: int, **kwargs):
-        branch = self.policy_layers(self.intermediate_inputs, **kwargs)
-        distribution_out = self.get_distribution_layer(branch, index)
-
-        # auxiliary outputs
-        similarity = Dense(units=1, activation=tf.nn.tanh, bias_initializer='glorot_uniform',
-                           name=f'pi-similarity-{index}')(branch)
-        speed = Dense(units=1, activation=lambda x: 2.0 * tf.nn.sigmoid(x), bias_initializer='glorot_uniform',
-                      name=f'pi-speed-{index}')(branch)
-
-        return concatenate([*distribution_out, similarity, speed])
-
     def value_network(self, **kwargs) -> Model:
         exp_scale = kwargs.pop('exponent_scale', 6.0)
         components = kwargs.pop('components', 1)
-        branch_out = self.value_branch(0, exp_scale, components, **kwargs)
+        value, speed, similarity = self.value_branch(0, exp_scale, components, **kwargs)
 
-        outputs = dict(value=branch_out[:, 0:2], similarity=branch_out[:, 2], speed=branch_out[:, 3])
+        outputs = dict(value=value, similarity=similarity, speed=speed)
         return Model(inputs=self.intermediate_inputs, outputs=outputs, name='Value-Network')
 
     def value_branch(self, index: int, exp_scale: float, components: int, **kwargs):
-        branch = self.value_layers(self.intermediate_inputs, **kwargs)
+        branch = control_branch(self.intermediate_inputs, **kwargs)
         value = self.value_head(branch, index, exponent_scale=exp_scale, components=components)
 
         # auxiliary outputs
@@ -234,7 +262,7 @@ class CARLANetwork(networks.PPONetwork):
         similarity = Dense(units=1, activation=tf.nn.tanh, bias_initializer='glorot_uniform',
                            name=f'v-similarity-{index}')(branch)
 
-        return concatenate([value, similarity, speed])
+        return value, speed, similarity
 
     def value_head(self, layer: Layer, index=0, exponent_scale=6.0, **kwargs):
         assert exponent_scale > 0.0
@@ -246,74 +274,37 @@ class CARLANetwork(networks.PPONetwork):
 
         return concatenate([base, exp], axis=1)
 
-    def get_distribution_layer(self, layer: Layer, index=0) -> tfp.layers.DistributionLambda:
-        num_actions = self.agent.num_actions
-
-        alpha = Dense(units=num_actions, activation=utils.softplus(1.0 + 1e-2), bias_initializer='glorot_uniform',
-                      name=f'alpha-{index}')(layer)
-        beta = Dense(units=num_actions, activation=utils.softplus(1.0 + 1e-2), bias_initializer='glorot_uniform',
-                     name=f'beta-{index}')(layer)
-
-        self.beta = tfp.layers.DistributionLambda(
-                make_distribution_fn=lambda t: tfp.distributions.Beta(t[0], t[1]),
-                convert_to_tensor_fn=self._distribution_to_tensor)([alpha, beta])
-
-        return self.beta
-
-    def _distribution_to_tensor(self, d: tfp.distributions.Distribution):
-        actions = d.sample()
-        old_actions = self.intermediate_inputs['action'][self.action_index]
-
-        log_prob = d.log_prob(self._clip_actions(actions))
-        old_log_prob = d.log_prob(self._clip_actions(old_actions))
-
-        return actions, log_prob, old_log_prob, d.mean(), d.stddev(), d.entropy()
-
-    @staticmethod
-    def _clip_actions(actions):
-        return tf.clip_by_value(actions, utils.EPSILON, 1.0 - utils.EPSILON)
-
-    def imitation_model(self):
-        if self.imitation is not None:
-            return
-
-        # link dynamics with policy and value networks
-        dynamics_out = self.dynamics(self.inputs)
-        policy_out = self.policy(dynamics_out)
-        value_out = self.value(dynamics_out)
-
-        self.imitation = Model(self.inputs, outputs=[policy_out, value_out], name='Imitation-Model')
-
-    @tf.function
-    def imitation_predict(self, inputs: dict):
-        return self.imitation(inputs, training=True)
-
-    def init_inference_model(self):
-        if self.inference is not None:
-            return
-
-        dynamics_out = self.dynamics(self.inputs)
-        policy_out = self.policy(dynamics_out)
-        value_out = self.value(dynamics_out)
-
-        self.inference = Model(self.inputs, outputs=[policy_out, value_out], name='Inference-Model')
-
     def reset(self):
         super().reset()
         self.action_index = 0
 
+    def update_old_policy(self, weights=None):
+        if weights:
+            self.old_policy.set_weights(weights)
+        else:
+            self.old_policy.set_weights(self.policy.get_weights())
+
     def summary(self):
-        super().summary()
+        print('==== Policy Network ====')
+        self.policy.summary()
+
+        print('\n==== Value Network ====')
+        self.value.summary()
+
         print('\n==== Dynamics Model ====')
         self.dynamics.summary()
 
     def save_weights(self):
-        super().save_weights()
+        self.policy.save_weights(filepath=self.agent.weights_path['policy'])
+        self.value.save_weights(filepath=self.agent.weights_path['value'])
         self.dynamics.save_weights(filepath=self.agent.dynamics_path)
 
     def load_weights(self, full=True):
         if full:
-            super().load_weights()
+            self.policy.load_weights(filepath=self.agent.weights_path['policy'], by_name=False)
+            self.old_policy.set_weights(self.policy.get_weights())
+
+            self.value.load_weights(filepath=self.agent.weights_path['value'], by_name=False)
             self.dynamics.load_weights(filepath=self.agent.dynamics_path, by_name=False)
         else:
             self.dynamics.load_weights(filepath=self.agent.dynamics_path, by_name=False)

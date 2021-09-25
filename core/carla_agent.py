@@ -49,7 +49,6 @@ class FakeCARLAEnvironment(gym.Env):
 # -- Agent
 # -------------------------------------------------------------------------------------------------
 
-# TODO: imitation learning broken!!
 class CARLAgent(PPOAgent):
     # Default neural network architecture
     DEFAULT_CONTROL = dict(units=320, num_layers=2, activation=utils.swish6)
@@ -117,11 +116,8 @@ class CARLAgent(PPOAgent):
         self.dynamics_optimizer = utils.get_optimizer_by_name(name=kwargs.get('optimizer', 'adam'),
                                                               learning_rate=dynamics_lr)
 
-    def act(self, state: dict, **kwargs):
-        for k, v in kwargs.items():
-            state[k] = v
-
-        return self.network.act(state)
+        self.network.policy.compile(optimizer=self.policy_optimizer, run_eagerly=False)
+        self.network.old_policy.compile(optimizer=self.policy_optimizer, run_eagerly=False)
 
     def update(self):
         if len(self.memory) < self.batch_size:
@@ -384,10 +380,15 @@ class CARLAgent(PPOAgent):
         self.dynamics_optimizer.apply_gradients(zip(gradients, self.network.dynamics.trainable_variables))
         return gradients
 
+    @tf.function
+    def policy_predict(self, inputs: dict) -> dict:
+        return self.network.policy(inputs, training=True)
+
     def policy_objective(self, batch):
         states, advantages, old_log_prob, true_speed, true_similarity = batch
-        policy = self.network.policy(states, training=True)
-        log_prob = policy['old_log_prob']
+        policy = self.policy_predict(states)
+
+        log_prob = policy['log_prob']
         entropy = tf.reduce_mean(policy['entropy'])
         speed = policy['speed']
         similarity = policy['similarity']
@@ -477,185 +478,6 @@ class CARLAgent(PPOAgent):
 
         return (value_loss + speed_loss + similarity_loss) * 0.25
 
-    # TODO: broken
-    def imitation_learning(self, num_traces=np.inf, batch_size=None, shuffle_traces=True, alpha=1.0, beta=1.0, lr=1e-3,
-                           clip_grad=1.0, optimizer='adam', save_every: Union[str, None] = 'end', epochs=1, seed=None,
-                           validate_every=5, traces_dir='traces', shuffle_batches=False, shuffle_data=False,
-                           accumulate_gradients=False, polyak=0.99):
-        """Imitation leaning phase (with balanced-action batches)
-        :param num_traces: number of traces to consider for each learning epoch.
-        :param batch_size: dimension of the batch in terms of timesteps (i.e. single states)
-        :param shuffle_traces: whether or not to shuffle the traces before loading them.
-        :param alpha: scalar that balances the policy's loss
-        :param beta: scalar that balances the value's loss
-        :param lr: learning rate for the entire network (shared + policy + value)
-        :param clip_grad: maximum gradient norm.
-        :param optimizer: which optimizer to use. Default is "adam".
-        :param save_every: whether or not to save the network at the end of each epoch.
-        :param epochs: number of epochs. Each epoch lasts `num_traces` times.
-        :param seed: random seed.
-        :param validate_every: after how much traces validate the agent.
-        :param traces_dir: the directory that contains the experience traces.
-        :param shuffle_batches: whether or not to shuffle batches of data.
-        :param shuffle_data: whether or not to shuffle the data before feeding the agent.
-        :param accumulate_gradients: whether or not to accumulate (i.e. sum) the gradients over mini-batches of a
-               single update.
-        :param polyak: Polyak averaging coefficient.
-        """
-        print('== IMITATION LEARNING ==')
-
-        batch_size = self.batch_size if batch_size is None else batch_size
-        traces_dir = traces_dir if isinstance(traces_dir, str) else self.traces_dir
-        self.set_random_seed(seed)
-        self.network.imitation_model()
-
-        lr = DynamicParameter.create(value=lr)
-        optimizer = utils.get_optimizer_by_name(optimizer, learning_rate=lr)
-        traces_count = utils.count_traces(traces_dir)
-
-        for e in range(epochs):
-            offset = 0
-
-            while offset < traces_count:
-                data, offset = self.imitation_prepare_data(batch_size, traces_dir, num_traces,
-                                                           shuffle=shuffle_traces, offset=offset)
-                preprocess_fn = self.augment()
-                t0 = time.time()
-
-                states, actions, rewards = data['state'], data['action'], data['reward']
-                states: dict
-
-                # remove speed and similarity from `states`
-                speed = states.pop('speed') / 100.0
-                similarity = states.pop('similarity')
-
-                # also remove returns (base and exp) and use them to compute values
-                returns_base = states.pop('returns_base')
-                returns_exp = states.pop('returns_exp')
-                states['value'] = tf.stack([returns_base, returns_exp], axis=1)
-
-                if self.distribution_type == 'categorical':
-                    states['action'] = self.convert_actions(actions)  # fix: data is collected in continuous space
-                else:
-                    states['action'] = actions
-
-                states['reward'] = rewards
-                aug_states = self.map_states(preprocess_fn, states)
-
-                self.log(rewards=rewards, values_true_imitation=states['value'], lr_imitation=lr.value,
-                         returns=returns_base * tf.pow(10, returns_exp),
-                         returns_base=returns_base, returns_exp=returns_exp, speed=speed, similarity=similarity)
-                self.log_actions(actions_imitation=actions, actions_true_imitation=states['action'],
-                                 command=states['state_command'])
-
-                # data = states
-                data = (states, aug_states, speed, similarity)
-
-                # validation and training:
-                if (offset + 1) % validate_every == 0:
-                    self.imitation_validation(data=data, batch_size=batch_size, seed=seed, alpha=alpha, beta=beta,
-                                              shuffle_batches=shuffle_batches, shuffle_data=shuffle_data)
-
-                self.imitation_update(data=data, batch_size=batch_size, alpha=alpha, beta=beta, polyak=polyak,
-                                      clip_grad=clip_grad, optimizer=optimizer, shuffle_batches=shuffle_batches,
-                                      shuffle_data=shuffle_data, accumulate_gradients=accumulate_gradients, seed=seed)
-                self.write_summaries()
-                print(f'[{e + 1}/{offset + 1}] Episode took {round(time.time() - t0, 3)}s.')
-
-            lr.on_episode()
-
-            if save_every == 'end':
-                self.save()
-
-    def imitation_prepare_data(self, batch_size: int, traces_dir: str, num_traces: int, shuffle=False,
-                               offset=0) -> (dict, int):
-        """Loads data from traces, and builds a batch with balanced actions (e.g. same amount of left and right
-           steering etc.)
-        """
-        def filter_throttle(s, a, r):
-            mask = a[:, 0] >= 0.0
-
-            s = {_k: utils.to_float(v)[mask] for _k, v in s.items()}
-
-            return s, a[mask], r[tf.concat([mask, [True]], axis=0)]
-
-        def shuffle_trace(s: dict, a, r):
-            indices = tf.range(start=0, limit=tf.shape(a)[0], dtype=tf.int32)
-            indices = tf.random.shuffle(indices)
-
-            for _k, v in s.items():
-                s[_k] = tf.gather(v, indices)
-
-            a = tf.gather(a, indices)
-            r = tf.gather(r, tf.concat([indices, [tf.shape(r)[0] - 1]], axis=0))
-
-            return s, a, r
-
-        def mask_reward(r, mask):
-            return r[tf.concat([mask, [True]], axis=0)]
-
-        def filter_steering(s, a, r, t=0.1):
-            masks = dict(left=a[:, 1] <= -t,
-                         right=a[:, 1] >= t,
-                         center=(a[:, 1] > -t) & (a[:, 1] < t))
-
-            filtered_data = []
-
-            for k in ['left', 'center', 'right']:
-                mask = masks[k]
-                taken = int(min(amounts[k], tf.reduce_sum(tf.cast(mask, tf.int32))))
-                amounts[k] -= taken
-
-                filtered_data.append(dict(state={k: v[mask][:taken] for k, v in s.items()},
-                                          action=a[mask][:taken],
-                                          reward=mask_reward(r, mask)[:taken]))
-            return filtered_data
-
-        amounts = dict(left=batch_size, right=batch_size, center=batch_size)
-        data = None
-        k = offset
-
-        while sum(map(lambda k_: amounts[k_], amounts)) > 0:
-            for j, trace in enumerate(utils.load_traces(traces_dir, max_amount=num_traces, shuffle=shuffle,
-                                                        offset=0 if self.seed is None else offset)):
-                k += 1
-                trace = utils.unpack_trace(trace, unpack=False)
-
-                states, actions = trace['state'], utils.to_float(trace['action'])
-                rewards = utils.to_float(trace['reward'])
-                states['speed'] = utils.to_tensor(trace['info_speed'], expand_axis=-1)
-                states['similarity'] = utils.to_tensor(trace['info_similarity'], expand_axis=-1)
-                states['state_command'] = self.convert_command(states['state_command'])
-
-                # compute (decomposed) returns
-                returns = utils.rewards_to_go(rewards, discount=self.gamma)
-                states: dict
-                states['returns_base'], \
-                states['returns_exp'] = tf.map_fn(fn=utils.decompose_number, elems=utils.to_float(returns),
-                                                  dtype=(tf.float32, tf.float32))
-
-                states, actions, rewards = filter_throttle(states, actions, rewards)
-                states, actions, rewards = shuffle_trace(states, actions, rewards)
-                f_data = filter_steering(states, actions, rewards)
-
-                if data is None:
-                    data = f_data
-                else:
-                    for i, d in enumerate(f_data):
-                        # for i in left, center, right...
-                        data[i]['state'] = utils.concat_dict_tensor(data[i]['state'], d['state'])
-                        data[i]['action'] = tf.concat([data[i]['action'], d['action']], axis=0)
-                        data[i]['reward'] = tf.concat([data[i]['reward'], d['reward']], axis=0)
-
-                if sum(map(lambda k_: amounts[k_], amounts)) <= 0:
-                    break
-
-        # concat left, center, and right parts together
-        return dict(state=utils.concat_dict_tensor(*list(d['state'] for d in data)),
-                    action=tf.concat(list(d['action'] for d in data), axis=0),
-                    reward=tf.concat(list(d['reward'] for d in data), axis=0)), k
-
-    # TODO: rename
     def log_actions(self, **kwargs):
         for tag, actions in kwargs.items():
             for action in actions:
@@ -686,141 +508,6 @@ class CARLAgent(PPOAgent):
             return tf.constant([0.0, 1.0, 0.0], dtype=tf.float32)
 
         return tf.map_fn(fn, elems=commands)
-
-    def imitation_update(self, data, optimizer, batch_size: int, seed=None, alpha=0.5, beta=0.5, clip_grad=1.0,
-                         shuffle_batches=False, shuffle_data=False, accumulate_gradients=False, polyak=0.99):
-        t0 = time.time()
-        batches = utils.data_to_batches(data, batch_size, shuffle=shuffle_data, seed=seed,
-                                        drop_remainder=False, shuffle_batches=shuffle_batches,
-                                        num_shards=self.obs_skipping)
-        batch_gradients = None
-        num_batches = 0
-
-        for batch in batches:
-            self.network.reset()
-            num_batches += 1
-
-            with tf.GradientTape() as tape:
-                loss_policy, loss_value = self.imitation_objective(batch)
-                total_loss = alpha * loss_policy + beta * loss_value
-
-            gradients = tape.gradient(total_loss, self.network.imitation.trainable_variables)
-
-            if accumulate_gradients:
-                batch_gradients = utils.accumulate_gradients(gradients, batch_gradients)
-            else:
-                gradients = utils.clip_gradients(gradients, norm=clip_grad)
-
-                if polyak < 1.0:
-                    old_weights = self.network.imitation.get_weights()
-                    optimizer.apply_gradients((zip(gradients, self.network.imitation.trainable_variables)))
-                    utils.polyak_averaging(self.network.imitation, old_weights, alpha=polyak)
-                else:
-                    optimizer.apply_gradients((zip(gradients, self.network.imitation.trainable_variables)))
-
-            self.log(loss_policy_imitation=loss_policy, loss_value_imitation=loss_value, loss_imitation=total_loss,
-                     gradients_norm_imitation=[tf.norm(gradient) for gradient in gradients])
-
-        if accumulate_gradients:
-            gradients = utils.average_gradients(batch_gradients, num_batches)
-            gradients = utils.clip_gradients(gradients, norm=clip_grad)
-
-            if polyak < 1.0:
-                old_weights = self.network.imitation.get_weights()
-                optimizer.apply_gradients((zip(gradients, self.network.imitation.trainable_variables)))
-                utils.polyak_averaging(self.network.imitation, old_weights, alpha=polyak)
-            else:
-                optimizer.apply_gradients((zip(gradients, self.network.imitation.trainable_variables)))
-
-            self.log(gradients_norm_imitation_batch=[tf.norm(gradient) for gradient in gradients])
-
-        print(f'[Imitation] update took {round(time.time() - t0, 3)}s.')
-
-    def imitation_validation(self, data, batch_size: int, alpha: float, beta: float, seed=None, shuffle_batches=False,
-                             shuffle_data=False):
-        t0 = time.time()
-        batches = utils.data_to_batches(data, batch_size, seed=seed, drop_remainder=False,
-                                        shuffle=shuffle_data, shuffle_batches=shuffle_batches,
-                                        num_shards=self.obs_skipping)
-        self.network.reset()
-
-        for batch in batches:
-            loss_policy, loss_value = self.imitation_objective(batch, validation=True)
-            total_loss = alpha * loss_policy + beta * loss_value
-
-            self.log(validation_loss_policy=loss_policy, validation_loss_value=loss_value, validation_loss=total_loss)
-
-        print(f'[Imitation] validation took {round(time.time() - t0, 3)}s.')
-
-    def imitation_objective(self, batch, validation=False):
-        """Imitation learning objective with `concordance loss` (i.e. a loss that encourages the network to make
-           consistent predictions among augmented and non-augmented batches of data)
-        """
-        states, aug_states, speed, similarity = batch
-
-        true_actions = utils.to_float(states['action'])
-        true_values = states['value']
-
-        # prediction on NON-augmented and AUGMENTED states
-        policy, value = self.network.imitation_predict(states)
-        policy_aug, value_aug = self.network.imitation_predict(aug_states)
-
-        # actions, values, speed, and similarities
-        actions, actions_aug = utils.to_float(policy['actions']), utils.to_float(policy_aug['actions'])
-        values, values_aug = value['value'], value_aug['value']
-        pi_speed, pi_speed_aug = policy['speed'], policy_aug['speed']
-        v_speed, v_speed_aug = value['speed'], value_aug['speed']
-        pi_similarity, pi_similarity_aug = policy['similarity'], policy_aug['similarity']
-        v_similarity, v_similarity_aug = value['similarity'], value_aug['similarity']
-
-        if not validation:
-            self.log_actions(actions_pred_imitation=actions, actions_pred_aug_imitation=actions_aug)
-            self.log(values_pred_imitation=values, values_pred_aug_imitation=values_aug,
-                     speed_pi=pi_speed, speed_pi_aug=pi_speed_aug, speed_v=v_speed, speed_v_aug=v_speed_aug,
-                     similarity_pi=pi_similarity, similarity_pi_aug=pi_similarity_aug,
-                     similarity_v=v_similarity, similarity_v_aug=v_similarity_aug)
-
-        # loss policy = sum of per-action MAE error
-        loss_policy = (tf.reduce_mean(tf.reduce_sum(tf.abs(true_actions - actions), axis=1)) +
-                       tf.reduce_mean(tf.reduce_sum(tf.abs(true_actions - actions_aug), axis=1))) / 2.0
-
-        loss_value = (tf.reduce_mean(losses.MSE(y_true=true_values, y_pred=values)) +
-                      tf.reduce_mean(losses.MSE(y_true=true_values, y_pred=values_aug))) / 2.0
-
-        loss_speed_policy = (tf.reduce_mean(losses.MSE(y_true=speed, y_pred=pi_speed)) +
-                             tf.reduce_mean(losses.MSE(y_true=speed, y_pred=pi_speed_aug))) / 2.0
-        loss_speed_value = (tf.reduce_mean(losses.MSE(y_true=speed, y_pred=v_speed)) +
-                            tf.reduce_mean(losses.MSE(y_true=speed, y_pred=v_speed_aug))) / 2.0
-
-        loss_similarity_policy = (tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=pi_similarity)) +
-                                  tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=pi_similarity_aug))) / 2.0
-        loss_similarity_value = (tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=v_similarity)) +
-                                 tf.reduce_mean(losses.MSE(y_true=similarity, y_pred=v_similarity_aug))) / 2.0
-
-        # concordance loss: make both prediction be close as possible
-        concordance_policy = (tf.reduce_mean(losses.MSE(actions, actions_aug)) +
-                              tf.reduce_mean(losses.MSE(pi_speed, pi_speed_aug)) +
-                              tf.reduce_mean(losses.MSE(pi_similarity, pi_similarity_aug))) / 3.0
-
-        concordance_value = (tf.reduce_mean(losses.MSE(values, values_aug)) +
-                             tf.reduce_mean(losses.MSE(v_speed, v_speed_aug)) +
-                             tf.reduce_mean(losses.MSE(v_similarity, v_similarity_aug))) / 3.0
-
-        # total loss
-        total_loss_policy = \
-            loss_policy + self.aux * (loss_speed_policy + loss_similarity_policy) + self.delta * concordance_policy
-        total_loss_value = \
-            loss_value + self.aux * (loss_speed_value + loss_similarity_value) + self.eta * concordance_value
-
-        if not validation:
-            self.log(loss_policy=loss_policy, loss_value=loss_value, loss_speed_policy=loss_speed_policy,
-                     loss_similarity_policy=loss_similarity_policy, loss_speed_value=loss_speed_value,
-                     loss_similarity_value=loss_similarity_value,
-                     loss_concordance_policy=concordance_policy, loss_concordance_value=concordance_value,
-                     # loss_steer=steer_penalty, loss_throttle=throttle_penalty, loss_entropy=entropy_penalty
-            )
-
-        return total_loss_policy, total_loss_value
 
     def get_memory(self):
         return CARLAMemory(state_spec=self.state_spec, num_actions=self.num_actions,

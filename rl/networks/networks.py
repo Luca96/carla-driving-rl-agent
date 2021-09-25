@@ -159,11 +159,6 @@ class PPONetwork(Network):
         if is_terminal:
             return self.last_value
 
-        # if isinstance(state, dict):
-        #     state['timestep'] = tf.expand_dims(timestep, axis=0)
-        # else:
-        #     state = dict(state=state, timestep=tf.expand_dims(timestep, axis=0))
-
         return self.value_predict(state)
 
     @tf.function
@@ -227,9 +222,6 @@ class PPONetwork(Network):
         inputs = self._get_input_layers()
         last_layer = self.value_layers(inputs, **kwargs)
 
-        # Gaussian value-head
-        # value = self.gaussian_value_head(last_layer, **kwargs)
-
         value = self.value_head(last_layer, **kwargs)
         self.exp_scale = kwargs.get('exponent_scale', self.exp_scale)
 
@@ -281,18 +273,3 @@ class PPONetwork(Network):
 
         print('\n==== Value Network ====')
         self.value.summary()
-
-    # def register(self, **kwargs):
-    #     """Registers tensors as tf.keras's Input layers"""
-    #     for name, shape in kwargs.items():
-    #         assert isinstance(name, str)
-    #         assert isinstance(shape, tuple)
-    #
-    #         self.inputs[name] = Input(shape=shape, dtype=tf.float32, name=name)
-    #
-    # def retrieve(self, names: Union[str, List[str]]):
-    #     """Retrieves input tensors by name"""
-    #     if isinstance(names, str):
-    #         return self.inputs[names]
-    #
-    #     return [self.inputs[name] for name in names]

@@ -1,2 +1,2 @@
 
-from rl.environments.carla.environment import *
+from rl.environments.carla import *

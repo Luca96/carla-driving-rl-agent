@@ -209,27 +209,6 @@ class PPOAgent(Agent):
                 self.log(loss_total=total_loss, lr_policy=self.policy_lr.value,
                          gradients_norm_policy=[tf.norm(gradient) for gradient in policy_grads])
 
-            # TODO: provide a flag to enable tracking of the distribution's parameters. If so, save the layers
-            #  corresponding to the parameters, for to get their weights later for logging.
-            # if self.distribution_type == 'categorical':
-            #     logits = self.network.policy.get_layer(name='logits')
-            #
-            #     if isinstance(logits, tf.keras.layers.Dense):
-            #         weights, bias = logits.trainable_variables
-            #
-            #         self.log(weights_logits=tf.norm(weights), bias_logits=tf.norm(weights))
-            #
-            # elif self.distribution_type == 'beta':
-            #     alpha = self.network.policy.get_layer(name='alpha')
-            #     beta = self.network.policy.get_layer(name='beta')
-            #
-            #     if isinstance(alpha, tf.keras.layers.Dense) and isinstance(beta, tf.keras.layers.Dense):
-            #         weights_a, bias_a = alpha.trainable_variables
-            #         weights_b, bias_b = beta.trainable_variables
-            #
-            #         self.log(weights_alpha=tf.norm(weights_a), bias_alpha=tf.norm(bias_a),
-            #                  weights_beta=tf.norm(weights_b), bias_beta=tf.norm(bias_b))
-
         # Value network optimization:
         for _ in range(self.optimization_steps['value']):
             for data_batch in value_batches:
@@ -486,7 +465,7 @@ class PPOAgent(Agent):
               render_every: Union[bool, str, int] = False, close=True):
         assert episodes % self.update_frequency == 0
 
-        if save_every is False:
+        if (save_every is False) or (save_every is None):
             save_every = episodes + 1
         elif save_every is True:
             save_every = 1
@@ -543,7 +522,7 @@ class PPOAgent(Agent):
                     self.log(actions=action, action_env=action_env, rewards=reward,
                              distribution_mean=mean, distribution_std=std)
 
-                    self.memory.append(state, action, reward, value, log_prob, timestep=t / timesteps)
+                    self.memory.append(state, action, reward, value, log_prob)
                     state = next_state
 
                     # check whether a termination (terminal state or end of a transition) is reached:
