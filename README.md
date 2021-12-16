@@ -111,7 +111,21 @@ All the experiments were run on a machine with:
 
 All agents were evaluated on six metrics (*collision rate, similarity, speed, waypoint distance, total reward, and timesteps*), two disjoint weather sets (only one used during training), over all CARLA towns (from `Town01` to `Town10`) but only trained on `Town03`.
 
-![gif-performance](src/gif_agent.gif)
+`Town01`, daylight:
+
+![agent-performance-town01](src/agent_town01_day.gif)
+
+`Town02`, daylight:
+
+![agent_town02_day](src/agent_town02_day.gif)
+
+`Town07`, evening:
+
+![agent_town07_eve](src/agent_town07_eve.gif)
+
+`Town07`, night:
+
+![agent_town07_night](src/agent_town07_night.gif)
 
 The following table shows the performance of three agents: *curriculum* (C), *standard* (S), and *untrained* (U). The curriculum agent (C) combines PPO with curriculum learning, whereas the standard agent (S) doesn't use any curriculum. Lastly, the untrained agent (U) has the same architecture of the other two but with random weights, so it just provides (non-trivial) baseline performance for comparison purpose.
 ![performance table](src/absolute_performance.png)
@@ -122,7 +136,7 @@ For detailed results over each evaluation scenario, refer to the extensive evalu
 
 ## Cite this Work
 
-If this work is useful for your own research, please consider citing or mentioning this repository:
+If this work is useful for your own research, please consider citing the paper, and/or mentioning this repository:
 ```bibtex
 @inproceedings{anzalone2021reinforced,
   title={Reinforced Curriculum Learning For Autonomous Driving In Carla},
