@@ -18,6 +18,7 @@ from rl import PPOMemory
 from rl import ThreeCameraCARLAEnvironmentDiscrete
 from rl.environments.carla.tools import utils as carla_utils
 from rl.parameters import DynamicParameter
+from gym import spaces
 
 from core.networks import CARLANetwork
 
@@ -28,12 +29,18 @@ class FakeCARLAEnvironment(gym.Env):
     def __init__(self):
         super().__init__()
         env = ThreeCameraCARLAEnvironmentDiscrete
+        self.num_waypoints = 10
+        self.NAVIGATION_FEATURES = {}
+        self.NAVIGATION_FEATURES['space'] = spaces.Box(low=0.0, high=25.0, shape=(self.num_waypoints,))
+        self.NAVIGATION_FEATURES['default'] = np.zeros(shape=self.num_waypoints, dtype=np.float32)
 
+        self.time_horizon = 1
         self.action_space = env.ACTION['space']
         self.observation_space = gym.spaces.Dict(road=env.ROAD_FEATURES['space'],
                                                  vehicle=env.VEHICLE_FEATURES['space'],
                                                  past_control=env.CONTROL['space'], command=env.COMMAND_SPACE,
-                                                 image=gym.spaces.Box(low=-1.0, high=1.0, shape=(90, 360, 3)))
+                                                 image=gym.spaces.Box(low=-1.0, high=1.0, shape=(90, 360, 3)),
+                                                 navigation=self.NAVIGATION_FEATURES['space'])
 
     def step(self, action):
         pass
