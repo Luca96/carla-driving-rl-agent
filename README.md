@@ -1,12 +1,3 @@
-# CARLA Driving RL Agent
-A follow up of my *master's thesis project* involving **deep reinforcement learning** to train an **autonomous driving agent**. In particular, the driving agent is trained by using the *Proximal Policy Optimization* algorithm ([PPO](https://arxiv.org/pdf/1707.06347)) within a simulated driving environment provided by the [CARLA](http://carla.org/) simulator ([paper](https://arxiv.org/pdf/1711.03938)). The reinforcement learning phase is organized into increasingly difficult *stages*, following the idea of [Curriculum Learning](https://qmro.qmul.ac.uk/xmlui/bitstream/handle/123456789/15972/Bengio%2C%202009%20Curriculum%20Learning.pdf?sequence=1&isAllowed=y). 
-
-This work has been accepted at the International Conference on Image Processing ([ICIP 2021](https://www.2021.ieeeicip.org/)). The conference paper is available [here](https://ieeexplore.ieee.org/abstract/document/9506673/).
-
-Requirements, installation instructions, and results are listed below.
-
----
-
 ## Requirements
 
 Software:
@@ -33,15 +24,23 @@ Before running any code from this repo you have to:
     * *Windows*: `cd your-path-to-carla/CARLA_0.9.9.4/WindowsNoEditor/PythonAPI/carla/dist/`
     * *Linux*: `cd your-path-to-carla/CARLA_0.9.9.4/PythonAPI/carla/dist/`
     * Extract `carla-0.9.9-py3.7-XXX-amd64.egg` where `XXX` depends on your OS, e.g. `win` for Windows.
-    * Create a `setup.py` file within the extracted folder and write the following:
-      ```python
-      from distutils.core import setup
+    * conda environment installation
+    ```
+      conda create -n carla-ppo python=3.5
+      conda activate carla-ppo
+      conda install -c conda-forge cudatoolkit=10.1 cudnn=7.6
       
-      setup(name='carla',
-            version='0.9.9',
-            py_modules=['carla']) 
-      ```
-    * Install via pip: `pip install -e ~/CARLA_0.9.9.4/PythonAPI/carla/dist/carla-0.9.9-py3.7-XXX-amd64`
+      # settings for conda activation
+      mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+      echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' > $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+      echo 'export PYTHONPATH=path-to-your-carla/PythonAPI/carla/dist/carla-0.9.6-py3.5-linux-x86_64.egg' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+      
+      conda deactivate 
+      conda activate carla-ppo
+      cd your-path-to-carla
+      pip install -r requirements.txt
+    
+    ```
 
 Before running the repository's code be sure to **start CARLA first**: 
 * *Windows*: `your-path-to/CARLA_0.9.9.4/WindowsNoEditor/CarlaUE4.exe`
@@ -51,41 +50,8 @@ Before running the repository's code be sure to **start CARLA first**:
 
 ---
 
-## Examples
 
-Show the agent's network architecture (without running CARLA):
-```python
-from core import CARLAgent, FakeCARLAEnvironment
 
-agent = CARLAgent(FakeCARLAEnvironment(), batch_size=1, log_mode=None)
-agent.summary()
-```
-
-Play with the CARLA environment (requires running CARLA):
-```python
-from core import CARLAEnv
-from rl import CARLAPlayWrapper
- 
-# Set `debug=False` if the framerate is very low.
-# For better image quality, increase `image_shape` according to your hardware.
-env = CARLAEnv(debug=True, window_size=(900, 245), image_shape=(90, 120, 3)) 
-CARLAPlayWrapper(env).play()
-```
-
-Reinforcement learning example:
-```python
-from core import learning
-
-learning.stage_s1(episodes=5, timesteps=256, gamma=0.999, lambda_=0.995, save_every='end', stage_name='stage',
-                  seed=42, polyak=0.999, aug_intensity=0.0, repeat_action=1, load_full=False)\
-        .run2(epochs=10)
-```
-
-The complete training procedure is shown in `main.py`. Be aware that each stage can take long time to finish, so *comment what you don't need!*
-
->NOTE: When loading the agent, e.g. from `stage_s1` to `stege_s2` be sure to "*manually*"" copy and rename the saved agent's weights, otherwise use the same `stage_name` for each stage.
-
----
 
 ## Agent Architecture
 
@@ -132,18 +98,4 @@ The following table shows the performance of three agents: *curriculum* (C), *st
 
 For detailed results over each evaluation scenario, refer to the extensive evaluation table: `src\extensive_evaluation_table`.
 
----
 
-## Cite this Work
-
-If this work is useful for your own research, please consider citing the paper, and/or mentioning this repository:
-```bibtex
-@inproceedings{anzalone2021reinforced,
-  title={Reinforced Curriculum Learning For Autonomous Driving In Carla},
-  author={Anzalone, Luca and Barra, Silvio and Nappi, Michele},
-  booktitle={2021 IEEE International Conference on Image Processing (ICIP)},
-  pages={3318--3322},
-  year={2021},
-  organization={IEEE}
-}
-```
